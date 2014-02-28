@@ -20,3 +20,6 @@ executable pointcloudviewer
                      , selfrestart >= 0.1
                      , containers >= 0.5
                      , random >= 1.0
+                     , honi >= 0.1
+                     , vector >= 0.10
+                     , bytestring >= 0.10

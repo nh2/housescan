@@ -7,11 +7,19 @@ import           Control.Monad
 import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Vector.Storable (Vector, (!))
 import           Foreign.Ptr (nullPtr)
 import           Graphics.GLUtil
 import           Graphics.UI.GLUT
 import           System.Random (randomRIO)
 import           System.SelfRestart (forkSelfRestartExePollWithAction)
+import           System.IO (hPutStrLn, stderr)
+import           Honi (Oni)
+import qualified Honi as Honi
+import           Honi.Types (SensorType (SensorDepth))
+import qualified Honi.Types as Honi
+
+import           HoniHelper (takeDepthSnapshot, withHoni)
 
 
 data Cloud = Cloud
@@ -240,8 +248,9 @@ wheel State{..} _num dir _pos
 -- |Main
 main :: IO ()
 main = do
-  forkSelfRestartExePollWithAction 1.0 $
+  forkSelfRestartExePollWithAction 1.0 $ do
     putStrLn "executable changed, restarting"
+    threadDelay 1000000
 
   void $ getArgsAndInitialize >> createWindow "3D cloud viewer"
 
@@ -261,7 +270,7 @@ main = do
   depthMask   $= Enabled
   depthFunc   $= Just Lequal
   lineWidth   $= 3.0
-  pointSize   $= 3.0
+  pointSize   $= 2.0
 
   -- Callbacks
   displayCallback       $= display state
@@ -273,10 +282,13 @@ main = do
 
   initializeObjects state
 
-  _ <- forkIO $ cloudAdderThread state
+  -- _ <- forkIO $ cloudAdderThread state
+
+  _ <- forkIO $ honiThread state
 
   -- Let's get started
   mainLoop
+
 
 
 -- Pressing Enter adds new points
@@ -290,3 +302,33 @@ cloudAdderThread state = do
     let ps = [(x+1,y+2,z+3),(x+4,y+5,z+6)]
         colour = Color3 (realToFrac $ x/10) (realToFrac $ y/10) (realToFrac $ z/10)
     addPointCloud state $ Cloud colour ps (length ps)
+
+
+-- Pressing Enter adds new points from a depth camera snapshot
+honiThread :: State -> IO ()
+honiThread state = withHoni $ forever $ do
+  _ <- getLine
+
+  putStrLn "Depth snapshot: start"
+  s <- takeDepthSnapshot
+  putStrLn "Depth snapshot: done"
+
+  case s of
+    Left err -> hPutStrLn stderr $ "WARNING: " ++ err
+    Right (depthVec, width, height) -> do
+
+      r <- randomRIO (0, 1)
+      g <- randomRIO (0, 1)
+      b <- randomRIO (0, 1)
+
+      let points = [ ( fromIntegral x / 10.0
+                     , fromIntegral y / 10.0
+                     , fromIntegral depth / 40.0 - 20.0
+                     ) | x <- [0..width-1]
+                       , y <- [0..height-1]
+                       , let depth = depthVec ! (y * width + x)
+                       , depth /= 0
+                   ]
+          colour = Color3 r g b
+
+      addPointCloud state $ Cloud colour points (length points)
