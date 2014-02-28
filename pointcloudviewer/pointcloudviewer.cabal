@@ -1,0 +1,22 @@
+name:                pointcloudviewer
+version:             0.1.0
+license:             MIT
+author:              Niklas Hambüchen <mail@nh2.me>, Nandor Licker
+maintainer:          Niklas Hambüchen <mail@nh2.me>
+build-type:          Simple
+cabal-version:       >=1.8
+homepage:            https://github.com/nh2/cloudviewer
+bug-reports:         https://github.com/nh2/cloudviewer/issues
+synopsis:            Point Cloud Viewer
+description:
+  Displays point clouds with OpenGL.
+
+
+executable pointcloudviewer
+  main-is:             Main.hs
+  build-depends:       base >= 4.6 && < 5
+                     , GLUT >= 2.5
+                     , GLUtil >= 0.7
+                     , selfrestart >= 0.1
+                     , containers >= 0.5
+                     , random >= 1.0

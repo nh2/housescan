@@ -1,14 +1,29 @@
-{-# LANGUAGE NamedFieldPuns, RecordWildCards #-}
---------------------------------------------------------------------------------
--- OpenGL quadrocopter viewer
---------------------------------------------------------------------------------
+{-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase #-}
 module Main where
 
+import           Control.Applicative
+import           Control.Concurrent
+import           Control.Monad
+import           Data.IORef
+import           Data.Map (Map)
+import qualified Data.Map as Map
+import           Foreign.Ptr (nullPtr)
+import           Graphics.GLUtil
+import           Graphics.UI.GLUT
+import           System.Random (randomRIO)
+import           System.SelfRestart (forkSelfRestartExePollWithAction)
 
-import Data.IORef
-import Control.Monad
-import Control.Applicative
-import Graphics.UI.GLUT
+
+data Cloud = Cloud
+  { cloudColor :: Color3 GLfloat
+  , cloudPoints :: [(Float, Float, Float)]
+  , cloudNumPoints :: Int
+  } deriving (Eq, Ord, Show)
+
+data Clouds = Clouds
+  { allocatedClouds :: Map BufferObject Cloud
+  } deriving (Eq, Ord, Show)
+
 
 -- |Application state
 data State
@@ -18,6 +33,8 @@ data State
           , sRotY :: IORef GLfloat
           , sZoom :: IORef GLfloat
           , sPan :: IORef ( GLfloat, GLfloat, GLfloat )
+          , sClouds :: IORef Clouds
+          , queuedClouds :: IORef [Cloud]
           }
 
 -- |Sets the vertex color
@@ -34,7 +51,7 @@ vertex3 x y z
 
 -- |Called when stuff needs to be drawn
 display :: State -> DisplayCallback
-display State{..} = do
+display state@State{..} = do
 
   ( width, height ) <- get sSize
   rx                <- get sRotX
@@ -71,13 +88,66 @@ display State{..} = do
     vertex3 0.0 0.0 0.0
     vertex3 0.0 0.0 20.0
 
-  preservingMatrix $ drawObjects
+  preservingMatrix $ drawObjects state
 
   flush
 
 -- |Draws the objects to show
-drawObjects :: IO ()
-drawObjects = return ()
+drawObjects :: State -> IO ()
+drawObjects state = do
+  displayQuad 1 1 1
+
+  drawPointClouds state
+
+
+drawPointClouds :: State -> IO ()
+drawPointClouds state@State{ sClouds } = do
+
+  -- Allocate BufferObjects for all queued clouds
+  processCloudQueue state
+
+  Clouds{ allocatedClouds } <- readIORef sClouds
+
+  -- Render all clouds
+  forM_ (Map.toList allocatedClouds) $ \(bufObj, Cloud{ cloudColor = col, cloudNumPoints = n }) -> do
+
+    color col
+    clientState VertexArray $= Enabled
+    bindBuffer ArrayBuffer $= Just bufObj
+    arrayPointer VertexArray $= VertexArrayDescriptor 3 Float 0 nullPtr
+    drawArrays Points 0 (fromIntegral n)
+    bindBuffer ArrayBuffer $= Nothing
+    clientState VertexArray $= Disabled
+
+
+processCloudQueue :: State -> IO ()
+processCloudQueue State{ sClouds, queuedClouds } = do
+
+  -- Get out queued clouds, set queued clouds to []
+  queued <- atomicModifyIORef' queuedClouds (\cls -> ([], cls))
+
+  forM_ queued $ \cloud -> do
+
+    let flat = concat [ [x,y,z] | (x,y,z) <- cloudPoints cloud ]
+
+    -- Allocate buffer object containing all these points
+    bufObj <- makeBuffer ArrayBuffer flat
+
+    modifyIORef sClouds $
+      \p@Clouds{ allocatedClouds = cloudMap } ->
+        p{ allocatedClouds = Map.insert bufObj cloud cloudMap }
+
+
+addPointCloud :: State -> Cloud -> IO ()
+addPointCloud State{ queuedClouds } cloud = do
+  atomicModifyIORef' queuedClouds (\cls -> (cloud:cls, ()))
+
+
+initializeObjects :: State -> IO ()
+initializeObjects state = do
+
+  let ps = [(1,2,3),(4,5,6)]
+  addPointCloud state $ Cloud (Color3 0 1 0) ps (length ps)
 
 
 -- |Displays a quad
@@ -170,6 +240,9 @@ wheel State{..} _num dir _pos
 -- |Main
 main :: IO ()
 main = do
+  forkSelfRestartExePollWithAction 1.0 $
+    putStrLn "executable changed, restarting"
+
   void $ getArgsAndInitialize >> createWindow "3D cloud viewer"
 
   -- Create a new state
@@ -179,6 +252,8 @@ main = do
                  <*> newIORef 0.0
                  <*> newIORef 5.0
                  <*> newIORef ( 0, 0, 0 )
+                 <*> newIORef (Clouds Map.empty)
+                 <*> newIORef []
 
   -- OpenGL
   clearColor  $= Color4 0 0 0 1
@@ -186,6 +261,7 @@ main = do
   depthMask   $= Enabled
   depthFunc   $= Just Lequal
   lineWidth   $= 3.0
+  pointSize   $= 3.0
 
   -- Callbacks
   displayCallback       $= display state
@@ -195,8 +271,22 @@ main = do
   motionCallback        $= Just (motion state)
   keyboardMouseCallback $= Just (input state)
 
+  initializeObjects state
+
+  _ <- forkIO $ cloudAdderThread state
 
   -- Let's get started
   mainLoop
 
 
+-- Pressing Enter adds new points
+cloudAdderThread :: State -> IO ()
+cloudAdderThread state = do
+  forever $ do
+    _ <- getLine -- read newline
+    x <- randomRIO (0, 10)
+    y <- randomRIO (0, 10)
+    z <- randomRIO (0, 10)
+    let ps = [(x+1,y+2,z+3),(x+4,y+5,z+6)]
+        colour = Color3 (realToFrac $ x/10) (realToFrac $ y/10) (realToFrac $ z/10)
+    addPointCloud state $ Cloud colour ps (length ps)
