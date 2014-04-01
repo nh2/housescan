@@ -37,7 +37,7 @@ data Clouds = Clouds
 
 -- |Application state
 data State
-  = State { sMouseX :: IORef ( GLint, GLint )
+  = State { sMouse :: IORef ( GLint, GLint )
           , sSize :: IORef ( GLint, GLint )
           , sRotX :: IORef GLfloat
           , sRotY :: IORef GLfloat
@@ -229,12 +229,12 @@ idle State{..} = do
 -- |Mouse motion
 motion :: State -> Position -> IO ()
 motion State{..} (Position x y) = do
-  ( mx, my ) <- get sMouseX
+  ( mx, my ) <- get sMouse
 
   sRotY $~! (+ fromIntegral ( fromIntegral x - mx ) )
   sRotX $~! (+ fromIntegral ( fromIntegral y - my ) )
 
-  sMouseX $= ( x, y )
+  sMouse $= ( x, y )
 
 
 changeFps :: State -> (Int -> Int) -> IO ()
@@ -245,7 +245,7 @@ changeFps State{ sFps } f = do
 -- |Button input
 input :: State -> Key -> KeyState -> Modifiers -> Position -> IO ()
 input State{..} (MouseButton LeftButton) Down _ (Position x y)
-  = sMouseX $= ( x, y )
+  = sMouse $= ( x, y )
 input state (MouseButton WheelDown) Down _ pos
   = wheel state 0 120 pos
 input state (MouseButton WheelUp) Down _ pos
