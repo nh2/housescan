@@ -252,6 +252,7 @@ input state (MouseButton WheelUp) Down _ pos
   = wheel state 0 (-120) pos
 input state (Char '[') Down _ _ = changeFps state pred
 input state (Char ']') Down _ _ = changeFps state succ
+input state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _mxy _ _ _ _
   = return ()
 
