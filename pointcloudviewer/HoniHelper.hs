@@ -41,18 +41,6 @@ takeDepthSnapshot = do
       Left err -> return $ Left (show err)
       Right a  -> f a
 
-    -- orWarn = (>>=)
-    -- orWarn :: Oni a -> (a -> IO ()) -> IO ()
-    -- orWarn oni f = oni >>= \case
-    --   Left err -> hPutStrLn stderr ("WARNING: " ++ show err)
-    --   Right a  -> f a
-
-    -- warnStatus :: String -> IO Status -> IO ()
-    -- warnStatus msg iost = iost >>= \case
-    --   StatusOK -> return ()
-    --   status   -> hPutStrLn stderr ("WARNING: " ++ msg ++ ": " ++ show status)
-
-
 
 bsToVector16Bits :: BS.ByteString -> Vector Word16
 bsToVector16Bits bs = unsafeFromForeignPtr0 (castForeignPtr fp0) len16Bits
