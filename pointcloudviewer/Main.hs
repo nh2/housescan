@@ -114,7 +114,7 @@ drawPointClouds state@State{ sClouds } = do
   -- Allocate BufferObjects for all queued clouds
   processCloudQueue state
 
-  Clouds{ allocatedClouds } <- readIORef sClouds
+  Clouds{ allocatedClouds } <- get sClouds
 
   -- Render all clouds
   forM_ (Map.toList allocatedClouds) $ \(bufObj, Cloud{ cloudColor = col, cloudNumPoints = n }) -> do
@@ -250,7 +250,7 @@ main :: IO ()
 main = do
   forkSelfRestartExePollWithAction 1.0 $ do
     putStrLn "executable changed, restarting"
-    threadDelay 1000000
+    threadDelay 1500000
 
   void $ getArgsAndInitialize >> createWindow "3D cloud viewer"
 
@@ -270,7 +270,7 @@ main = do
   depthMask   $= Enabled
   depthFunc   $= Just Lequal
   lineWidth   $= 3.0
-  pointSize   $= 2.0
+  pointSize   $= 1.0
 
   -- Callbacks
   displayCallback       $= display state
