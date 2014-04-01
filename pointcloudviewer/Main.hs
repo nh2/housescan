@@ -330,7 +330,11 @@ cloudAdderThread state = do
 honiThread :: State -> IO ()
 honiThread state = withHoni $ forever $ do
   _ <- getLine
+  addDevicePointCloud state
 
+
+addDevicePointCloud :: State -> IO ()
+addDevicePointCloud state = do
   putStrLn "Depth snapshot: start"
   s <- takeDepthSnapshot
   putStrLn "Depth snapshot: done"
