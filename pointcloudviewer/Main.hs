@@ -34,10 +34,14 @@ data Clouds = Clouds
   { allocatedClouds :: Map BufferObject Cloud
   } deriving (Eq, Ord, Show)
 
+data DragMode = Rotate | Translate
+  deriving (Eq, Ord, Show)
+
 
 -- |Application state
 data State
   = State { sMouse :: IORef ( GLint, GLint )
+          , sDragMode :: IORef (Maybe DragMode)
           , sSize :: IORef ( GLint, GLint )
           , sRotX :: IORef GLfloat
           , sRotY :: IORef GLfloat
@@ -231,8 +235,11 @@ motion :: State -> Position -> IO ()
 motion State{..} (Position x y) = do
   ( mx, my ) <- get sMouse
 
-  sRotY $~! (+ fromIntegral ( fromIntegral x - mx ) )
-  sRotX $~! (+ fromIntegral ( fromIntegral y - my ) )
+  get sDragMode >>= \case
+    Just Rotate -> do
+      sRotY $~! (+ fromIntegral ( fromIntegral x - mx ) )
+      sRotX $~! (+ fromIntegral ( fromIntegral y - my ) )
+    _ -> return ()
 
   sMouse $= ( x, y )
 
@@ -244,8 +251,12 @@ changeFps State{ sFps } f = do
 
 -- |Button input
 input :: State -> Key -> KeyState -> Modifiers -> Position -> IO ()
-input State{..} (MouseButton LeftButton) Down _ (Position x y)
-  = sMouse $= ( x, y )
+input State{..} (MouseButton LeftButton) Down _ (Position x y) = do
+  sMouse $= ( x, y )
+  sDragMode $= Just Rotate
+input State{..} (MouseButton LeftButton) Up _ (Position x y) = do
+  sMouse $= ( x, y )
+  sDragMode $= Nothing
 input state (MouseButton WheelDown) Down _ pos
   = wheel state 0 120 pos
 input state (MouseButton WheelUp) Down _ pos
@@ -277,6 +288,7 @@ main = do
 
   -- Create a new state
   state <- State <$> newIORef ( 0, 0 )
+                 <*> newIORef Nothing
                  <*> newIORef ( 0, 1 )
                  <*> newIORef 0.0
                  <*> newIORef 0.0
