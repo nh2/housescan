@@ -7,6 +7,8 @@ import           Control.Monad
 import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Int (Int64)
+import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Data.Vector.Storable (Vector, (!))
 import           Foreign.Ptr (nullPtr)
 import           Graphics.GLUtil
@@ -43,6 +45,7 @@ data State
           , sPan :: IORef ( GLfloat, GLfloat, GLfloat )
           , sClouds :: IORef Clouds
           , queuedClouds :: IORef [Cloud]
+          , sFps :: IORef Int
           }
 
 -- |Sets the vertex color
@@ -57,9 +60,14 @@ vertex3 x y z
   = vertex $ Vertex3 x y z
 
 
+getTimeUs :: IO Int64
+getTimeUs = round . (* 1000000.0) <$> getPOSIXTime
+
+
 -- |Called when stuff needs to be drawn
 display :: State -> DisplayCallback
 display state@State{..} = do
+  timeBefore <- getTimeUs
 
   ( width, height ) <- get sSize
   rx                <- get sRotX
@@ -99,6 +107,11 @@ display state@State{..} = do
   preservingMatrix $ drawObjects state
 
   flush
+
+  timeAfter <- getTimeUs
+  fps <- get sFps
+  let sleepTime = 1000000 `quot` fps - fromIntegral (timeAfter - timeBefore)
+  threadDelay sleepTime
 
 -- |Draws the objects to show
 drawObjects :: State -> IO ()
@@ -224,6 +237,11 @@ motion State{..} (Position x y) = do
   sMouseX $= ( x, y )
 
 
+changeFps :: State -> (Int -> Int) -> IO ()
+changeFps State{ sFps } f = do
+  sFps $~ f
+  putStrLn . ("FPS: " ++) . show =<< get sFps
+
 -- |Button input
 input :: State -> Key -> KeyState -> Modifiers -> Position -> IO ()
 input State{..} (MouseButton LeftButton) Down _ (Position x y)
@@ -232,6 +250,8 @@ input state (MouseButton WheelDown) Down _ pos
   = wheel state 0 120 pos
 input state (MouseButton WheelUp) Down _ pos
   = wheel state 0 (-120) pos
+input state (Char '[') Down _ _ = changeFps state pred
+input state (Char ']') Down _ _ = changeFps state succ
 input _mxy _ _ _ _
   = return ()
 
@@ -263,6 +283,7 @@ main = do
                  <*> newIORef ( 0, 0, 0 )
                  <*> newIORef (Clouds Map.empty)
                  <*> newIORef []
+                 <*> newIORef 30
 
   -- OpenGL
   clearColor  $= Color4 0 0 0 1
