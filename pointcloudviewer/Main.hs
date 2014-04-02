@@ -50,6 +50,9 @@ data State
           , sClouds :: IORef Clouds
           , queuedClouds :: IORef [Cloud]
           , sFps :: IORef Int
+          -- | Both `display` and `idle` set this to the current time
+          -- after running
+          , sLastLoopTime :: IORef (Maybe Int64)
           }
 
 -- |Sets the vertex color
@@ -71,7 +74,6 @@ getTimeUs = round . (* 1000000.0) <$> getPOSIXTime
 -- |Called when stuff needs to be drawn
 display :: State -> DisplayCallback
 display state@State{..} = do
-  timeBefore <- getTimeUs
 
   ( width, height ) <- get sSize
   rx                <- get sRotX
@@ -112,10 +114,7 @@ display state@State{..} = do
 
   flush
 
-  timeAfter <- getTimeUs
-  fps <- get sFps
-  let sleepTime = 1000000 `quot` fps - fromIntegral (timeAfter - timeBefore)
-  threadDelay sleepTime
+  getTimeUs >>= \now -> sLastLoopTime $= Just now
 
 -- |Draws the objects to show
 drawObjects :: State -> IO ()
@@ -227,7 +226,17 @@ reshape State{..} (Size width height) = do
 -- |Animation
 idle :: State -> IdleCallback
 idle State{..} = do
+
+  get sLastLoopTime >>= \case
+    Nothing -> return ()
+    Just lastLoopTime -> do
+      now <- getTimeUs
+      fps <- get sFps
+      let sleepTime = max 0 $ 1000000 `quot` fps - fromIntegral (now - lastLoopTime)
+      threadDelay sleepTime
+
   postRedisplay Nothing
+  getTimeUs >>= \now -> sLastLoopTime $= Just now
 
 
 -- |Mouse motion
@@ -308,6 +317,7 @@ main = do
                  <*> newIORef (Clouds Map.empty)
                  <*> newIORef []
                  <*> newIORef 30
+                 <*> newIORef Nothing
 
   -- OpenGL
   clearColor  $= Color4 0 0 0 1
