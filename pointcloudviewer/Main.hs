@@ -49,7 +49,6 @@ data State
           , sRotY :: IORef GLfloat
           , sZoom :: IORef GLfloat
           , sPan :: IORef ( GLfloat, GLfloat, GLfloat )
-          , sClouds :: IORef Clouds
           , queuedClouds :: IORef [Cloud]
           , sFps :: IORef Int
           -- | Both `display` and `idle` set this to the current time
@@ -59,7 +58,12 @@ data State
           , sRestartRequested :: IORef Bool
           , sGlInitialized :: IORef Bool
           , sRestartFunction :: IORef (IO ())
+          , transient :: TransientState
           }
+
+data TransientState
+  = TransientState { sClouds :: IORef Clouds
+                   }
 
 -- |Sets the vertex color
 color3 :: GLfloat -> GLfloat -> GLfloat -> IO ()
@@ -131,7 +135,7 @@ drawObjects state = do
 
 
 drawPointClouds :: State -> IO ()
-drawPointClouds state@State{ sClouds } = do
+drawPointClouds state@State{ transient = TransientState{ sClouds } } = do
 
   -- Allocate BufferObjects for all queued clouds
   processCloudQueue state
@@ -151,7 +155,7 @@ drawPointClouds state@State{ sClouds } = do
 
 
 processCloudQueue :: State -> IO ()
-processCloudQueue State{ sClouds, queuedClouds } = do
+processCloudQueue State{ transient = TransientState{ sClouds }, queuedClouds } = do
 
   -- Get out queued clouds, set queued clouds to []
   queued <- atomicModifyIORef' queuedClouds (\cls -> ([], cls))
@@ -326,15 +330,21 @@ createState = do
   sRotY             <- newIORef 0.0
   sZoom             <- newIORef 5.0
   sPan              <- newIORef ( 0, 0, 0 )
-  sClouds           <- newIORef (Clouds Map.empty)
   queuedClouds      <- newIORef []
   sFps              <- newIORef 30
   sLastLoopTime     <- newIORef Nothing
   sRestartRequested <- newIORef False
   sGlInitialized    <- newIORef False
   sRestartFunction  <- newIORef (error "restartFunction called before set")
+  transient         <- createTransientState
 
   return State{..} -- RecordWildCards for initialisation convenience
+
+
+createTransientState :: IO TransientState
+createTransientState = do
+  sClouds <- newIORef (Clouds Map.empty)
+  return TransientState{..}
 
 
 -- |Main
@@ -351,8 +361,12 @@ mainState state@State{..} = do
   -- Save the state globally
   globalStateRef $= Just state
   lookupStore 0 >>= \case -- to survive GHCI reloads
-    Nothing -> void $ newStore state
     Just _  -> return ()
+    Nothing -> do
+      -- Only store an empty transient state so that we can't access
+      -- things that cannot survive a reload (like GPU buffers).
+      emptytTransientState <- createTransientState
+      void $ newStore state{ transient = emptytTransientState }
 
   forkSelfRestartExePollWithAction 1.0 $ do
     putStrLn "executable changed, restarting"
