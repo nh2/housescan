@@ -11,11 +11,13 @@ import           Data.Int (Int64)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Data.Vector.Storable (Vector, (!))
 import           Foreign.Ptr (nullPtr)
+import           Foreign.Store (newStore, lookupStore, readStore)
 import           Graphics.GLUtil
 import           Graphics.UI.GLUT
 import           System.Random (randomRIO)
 import           System.SelfRestart (forkSelfRestartExePollWithAction)
 import           System.IO (hPutStrLn, stderr)
+import           System.IO.Unsafe (unsafePerformIO)
 import           Honi (Oni)
 import qualified Honi as Honi
 import           Honi.Types (SensorType (SensorDepth))
@@ -53,6 +55,10 @@ data State
           -- | Both `display` and `idle` set this to the current time
           -- after running
           , sLastLoopTime :: IORef (Maybe Int64)
+          -- Things needed for hot code reloading
+          , sRestartRequested :: IORef Bool
+          , sGlInitialized :: IORef Bool
+          , sRestartFunction :: IORef (IO ())
           }
 
 -- |Sets the vertex color
@@ -238,6 +244,11 @@ idle State{..} = do
   postRedisplay Nothing
   getTimeUs >>= \now -> sLastLoopTime $= Just now
 
+  -- If a restart is requested, stop the main loop.
+  -- The code after the main loop will do the actual restart.
+  restart <- get sRestartRequested
+  when restart leaveMainLoop
+
 
 -- | Called when the OpenGL window is closed.
 close :: State -> CloseCallback
@@ -308,11 +319,6 @@ wheel State{..} _num dir _pos
 -- |Main
 main :: IO ()
 main = do
-  forkSelfRestartExePollWithAction 1.0 $ do
-    putStrLn "executable changed, restarting"
-    threadDelay 1500000
-
-  void $ getArgsAndInitialize >> createWindow "3D cloud viewer"
 
   -- Create a new state
   state <- State <$> newIORef ( 0, 0 )
@@ -326,6 +332,28 @@ main = do
                  <*> newIORef []
                  <*> newIORef 30
                  <*> newIORef Nothing
+                 <*> newIORef False
+                 <*> newIORef False
+                 <*> newIORef (error "restartFunction called before set")
+  mainState state
+
+
+-- | Run `main` on a state.
+mainState :: State -> IO ()
+mainState state@State{..} = do
+
+  -- Save the state globally
+  globalStateRef $= Just state
+  lookupStore 0 >>= \case -- to survive GHCI reloads
+    Nothing -> void $ newStore state
+    Just _  -> return ()
+
+  forkSelfRestartExePollWithAction 1.0 $ do
+    putStrLn "executable changed, restarting"
+    threadDelay 1500000
+
+  void $ getArgsAndInitialize >> createWindow "3D cloud viewer"
+  sGlInitialized $= True
 
   -- OpenGL
   clearColor  $= Color4 0 0 0 1
@@ -347,7 +375,49 @@ main = do
   initializeObjects state
 
   -- Let's get started
-  mainLoop
+  actionOnWindowClose $= ContinueExecution
+  mainLoop -- blocks while windows are open
+  exit
+  sGlInitialized $= False
+  putStrLn "Exited OpenGL loop"
+
+  -- Restart if requested
+  get sRestartRequested >>= \r -> when r $ do
+    putStrLn "restarting"
+    sRestartRequested $= False
+    -- We can't just call `mainState state` here since that would (tail) call
+    -- the original function instead of the freshly loaded one. That's why the
+    -- function is put into the IORef to be updated by `restart`.
+    f <- get sRestartFunction
+    f
+
+
+
+-- | Global state.
+globalState :: State
+globalState = unsafePerformIO $ do
+  get globalStateRef >>= \case
+    Nothing -> error "global state not set!"
+    Just s  -> return s
+
+globalStateRef :: IORef (Maybe State)
+globalStateRef = unsafePerformIO $ do
+  -- putStrLn "setting globalState"
+  newIORef Nothing
+
+-- For restarting the program in GHCI while keeping the `State` intact.
+restart :: IO ()
+restart = do
+  lookupStore 0 >>= \case
+    Nothing -> putStrLn "restart: starting for first time" >> (void $ forkIO main)
+    Just store -> do
+      state@State{..} <- readStore store
+      -- If OpenGL is (still or already) initialized, just ask it to
+      -- shut down in the next `idle` loop.
+      get sGlInitialized >>= \case
+        True  -> do sRestartRequested $= True
+                    sRestartFunction $= mainState state
+        False -> void $ forkIO $ mainState state
 
 
 -- Add some random points as one point cloud

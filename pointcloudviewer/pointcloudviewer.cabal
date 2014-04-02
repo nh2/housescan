@@ -24,4 +24,5 @@ executable pointcloudviewer
                      , vector >= 0.10
                      , bytestring >= 0.10
                      , time >= 1.4
+                     , foreign-store >= 0.0
   ghc-options: -threaded
