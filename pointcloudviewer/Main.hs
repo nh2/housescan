@@ -239,6 +239,12 @@ idle State{..} = do
   getTimeUs >>= \now -> sLastLoopTime $= Just now
 
 
+-- | Called when the OpenGL window is closed.
+close :: State -> CloseCallback
+close State{..} = do
+  putStrLn "window closed"
+
+
 -- |Mouse motion
 motion :: State -> Position -> IO ()
 motion State{..} (Position x y) = do
@@ -334,6 +340,7 @@ main = do
   mouseWheelCallback    $= Just (wheel state)
   motionCallback        $= Just (motion state)
   keyboardMouseCallback $= Just (input state)
+  closeCallback         $= Just (close state)
 
   initializeObjects state
 
