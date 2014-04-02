@@ -258,13 +258,13 @@ changeFps State{ sFps } f = do
 input :: State -> Key -> KeyState -> Modifiers -> Position -> IO ()
 input State{..} (MouseButton LeftButton) Down _ (Position x y) = do
   sMouse $= ( x, y )
-  sDragMode $= Just Rotate
+  sDragMode $= Just Translate
 input State{..} (MouseButton LeftButton) Up _ (Position x y) = do
   sMouse $= ( x, y )
   sDragMode $= Nothing
 input State{..} (MouseButton RightButton) Down _ (Position x y) = do
   sMouse $= ( x, y )
-  sDragMode $= Just Translate
+  sDragMode $= Just Rotate
 input State{..} (MouseButton RightButton) Up _ (Position x y) = do
   sMouse $= ( x, y )
   sDragMode $= Nothing
