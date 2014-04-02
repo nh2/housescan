@@ -290,7 +290,7 @@ input state (MouseButton WheelUp) Down _ pos
 input state (Char '[') Down _ _ = changeFps state pred
 input state (Char ']') Down _ _ = changeFps state succ
 input state (Char 'p') Down _ _ = addRandomPoints state
-input state (Char '\r') Down _ _ = addDevicePointCloud state
+input state (Char '\r') Down _ _ = withHoni $ addDevicePointCloud state
 input state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _mxy _ _ _ _
   = return ()
@@ -346,8 +346,6 @@ main = do
 
   initializeObjects state
 
-  _ <- forkIO $ honiThread state
-
   -- Let's get started
   mainLoop
 
@@ -361,13 +359,6 @@ addRandomPoints state = do
   let ps = [(x+1,y+2,z+3),(x+4,y+5,z+6)]
       colour = Color3 (realToFrac $ x/10) (realToFrac $ y/10) (realToFrac $ z/10)
   addPointCloud state $ Cloud colour ps (length ps)
-
-
--- Pressing Enter adds new points from a depth camera snapshot
-honiThread :: State -> IO ()
-honiThread state = withHoni $ forever $ do
-  _ <- getLine
-  addDevicePointCloud state
 
 
 addDevicePointCloud :: State -> IO ()
