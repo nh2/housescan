@@ -316,25 +316,31 @@ wheel State{..} _num dir _pos
     clamp x = 0.5 `max` (30.0 `min` x)
 
 
+-- | Creates the default state
+createState :: IO State
+createState = do
+  sMouse            <- newIORef ( 0, 0 )
+  sDragMode         <- newIORef Nothing
+  sSize             <- newIORef ( 0, 1 )
+  sRotX             <- newIORef 0.0
+  sRotY             <- newIORef 0.0
+  sZoom             <- newIORef 5.0
+  sPan              <- newIORef ( 0, 0, 0 )
+  sClouds           <- newIORef (Clouds Map.empty)
+  queuedClouds      <- newIORef []
+  sFps              <- newIORef 30
+  sLastLoopTime     <- newIORef Nothing
+  sRestartRequested <- newIORef False
+  sGlInitialized    <- newIORef False
+  sRestartFunction  <- newIORef (error "restartFunction called before set")
+
+  return State{..} -- RecordWildCards for initialisation convenience
+
+
 -- |Main
 main :: IO ()
 main = do
-
-  -- Create a new state
-  state <- State <$> newIORef ( 0, 0 )
-                 <*> newIORef Nothing
-                 <*> newIORef ( 0, 1 )
-                 <*> newIORef 0.0
-                 <*> newIORef 0.0
-                 <*> newIORef 5.0
-                 <*> newIORef ( 0, 0, 0 )
-                 <*> newIORef (Clouds Map.empty)
-                 <*> newIORef []
-                 <*> newIORef 30
-                 <*> newIORef Nothing
-                 <*> newIORef False
-                 <*> newIORef False
-                 <*> newIORef (error "restartFunction called before set")
+  state <- createState
   mainState state
 
 
