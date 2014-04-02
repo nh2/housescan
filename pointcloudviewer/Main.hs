@@ -289,6 +289,8 @@ input state (MouseButton WheelUp) Down _ pos
   = wheel state 0 (-120) pos
 input state (Char '[') Down _ _ = changeFps state pred
 input state (Char ']') Down _ _ = changeFps state succ
+input state (Char 'p') Down _ _ = addRandomPoints state
+input state (Char '\r') Down _ _ = addDevicePointCloud state
 input state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _mxy _ _ _ _
   = return ()
@@ -344,26 +346,21 @@ main = do
 
   initializeObjects state
 
-  -- _ <- forkIO $ cloudAdderThread state
-
   _ <- forkIO $ honiThread state
 
   -- Let's get started
   mainLoop
 
 
-
--- Pressing Enter adds new points
-cloudAdderThread :: State -> IO ()
-cloudAdderThread state = do
-  forever $ do
-    _ <- getLine -- read newline
-    x <- randomRIO (0, 10)
-    y <- randomRIO (0, 10)
-    z <- randomRIO (0, 10)
-    let ps = [(x+1,y+2,z+3),(x+4,y+5,z+6)]
-        colour = Color3 (realToFrac $ x/10) (realToFrac $ y/10) (realToFrac $ z/10)
-    addPointCloud state $ Cloud colour ps (length ps)
+-- Add some random points as one point cloud
+addRandomPoints :: State -> IO ()
+addRandomPoints state = do
+  x <- randomRIO (0, 10)
+  y <- randomRIO (0, 10)
+  z <- randomRIO (0, 10)
+  let ps = [(x+1,y+2,z+3),(x+4,y+5,z+6)]
+      colour = Color3 (realToFrac $ x/10) (realToFrac $ y/10) (realToFrac $ z/10)
+  addPointCloud state $ Cloud colour ps (length ps)
 
 
 -- Pressing Enter adds new points from a depth camera snapshot
