@@ -90,9 +90,9 @@ display state@State{..} = do
   matrixMode $= Modelview 0
   loadIdentity
   translate $ Vector3 0 0 (-z * 10.0)
+  translate $ Vector3 (-tx) (-ty) (-tz)
   rotate rx $ Vector3 1 0 0
   rotate ry $ Vector3 0 1 0
-  translate $ Vector3 (-tx) (-ty) (-tz)
 
   -- |Draw reference system
   renderPrimitive Lines $ do
@@ -234,11 +234,16 @@ idle State{..} = do
 motion :: State -> Position -> IO ()
 motion State{..} (Position x y) = do
   ( mx, my ) <- get sMouse
+  let diffX = fromIntegral $ x - mx
+      diffY = fromIntegral $ y - my
 
   get sDragMode >>= \case
     Just Rotate -> do
-      sRotY $~! (+ fromIntegral ( fromIntegral x - mx ) )
-      sRotX $~! (+ fromIntegral ( fromIntegral y - my ) )
+      sRotY $~! (+ diffX)
+      sRotX $~! (+ diffY)
+    Just Translate -> do
+      zoom <- get sZoom
+      sPan $~! (\(x,y,z) -> (x - (diffX * 0.03 * zoom), y + (diffY * 0.03 * zoom), z) )
     _ -> return ()
 
   sMouse $= ( x, y )
@@ -255,6 +260,12 @@ input State{..} (MouseButton LeftButton) Down _ (Position x y) = do
   sMouse $= ( x, y )
   sDragMode $= Just Rotate
 input State{..} (MouseButton LeftButton) Up _ (Position x y) = do
+  sMouse $= ( x, y )
+  sDragMode $= Nothing
+input State{..} (MouseButton RightButton) Down _ (Position x y) = do
+  sMouse $= ( x, y )
+  sDragMode $= Just Translate
+input State{..} (MouseButton RightButton) Up _ (Position x y) = do
   sMouse $= ( x, y )
   sDragMode $= Nothing
 input state (MouseButton WheelDown) Down _ pos
