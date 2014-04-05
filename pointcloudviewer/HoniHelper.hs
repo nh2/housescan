@@ -22,7 +22,7 @@ import           System.IO (hPutStrLn, stderr)
 -- | Take a snapshot from the depth cam.
 --
 -- Don't forget to initialize OpenNI first, using `withHoni` or `initialize`.
-takeDepthSnapshot :: IO (Either String (Vector Word16, Int, Int))
+takeDepthSnapshot :: IO (Either String (Vector Word16, (Int, Int)))
 takeDepthSnapshot = do
   -- A little bit dirty, but double initialization is allowed:
   -- https://github.com/OpenNI/OpenNI2/blob/33355e/Source/Core/OniContext.cpp#L50
@@ -37,7 +37,7 @@ takeDepthSnapshot = do
           _                 -> do
             streamReadFrame stream `orWarn` \OniFrame{ frameData, frameWidth, frameHeight } -> do
               let frameVec = bsToVector16Bits frameData
-              return $ Right (frameVec, frameWidth, frameHeight)
+              return $ Right (frameVec, (frameWidth, frameHeight))
 
   where
     orWarn :: Oni a -> (a -> IO (Either String b)) -> IO (Either String b)

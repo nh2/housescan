@@ -459,7 +459,7 @@ addDevicePointCloud state = do
 
   case s of
     Left err -> hPutStrLn stderr $ "WARNING: " ++ err
-    Right (depthVec, width, height) -> do
+    Right (depthVec, (width, height)) -> do
 
       r <- randomRIO (0, 1)
       g <- randomRIO (0, 1)
