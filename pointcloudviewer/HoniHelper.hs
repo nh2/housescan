@@ -5,18 +5,12 @@ module HoniHelper
   , withHoni
   ) where
 
-import           Control.Applicative
 import qualified Data.ByteString as BS
-import           Data.ByteString.Internal (toForeignPtr)
-import           Data.Vector.Storable (Vector, (!), unsafeFromForeignPtr0)
-import qualified Data.Vector.Storable as VS
-import           Data.Vector.Storable.Internal (updPtr)
+import           Data.Vector.Storable (Vector)
 import           Data.Word (Word16)
-import           Foreign.ForeignPtr (castForeignPtr)
-import           Foreign.Marshal.Array (advancePtr)
 import           Honi
 import           Honi.Types
-import           System.IO (hPutStrLn, stderr)
+import           Data.Vector.Storable.ByteString (byteStringToVector)
 
 
 -- | Take a snapshot from the depth cam.
@@ -47,12 +41,7 @@ takeDepthSnapshot = do
 
 
 bsToVector16Bits :: BS.ByteString -> Vector Word16
-bsToVector16Bits bs = unsafeFromForeignPtr0 (castForeignPtr fp0) len16Bits
-  where
-    len16Bits = len `quot` 2
-    (fp, off, len)  = toForeignPtr bs
-    fp0 | off /= 0  = updPtr (`advancePtr` off) fp
-        | otherwise = fp
+bsToVector16Bits = byteStringToVector
 
 
 -- | Wrap an action in `initialize` and `shutdown`.
