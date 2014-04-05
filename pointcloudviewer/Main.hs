@@ -1,4 +1,6 @@
 {-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 module Main where
 
 import           Control.Applicative
@@ -9,6 +11,10 @@ import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Int (Int64)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
+import           Data.Vect.Float hiding (Vector)
+import           Data.Vect.Float.Instances ()
+import           Data.Vector.Storable (Vector)
+import qualified Data.Vector.Storable as V
 import           Foreign.Ptr (nullPtr)
 import           Foreign.Store (newStore, lookupStore, readStore)
 import           Graphics.GLUtil
@@ -21,10 +27,13 @@ import           System.IO.Unsafe (unsafePerformIO)
 import           HoniHelper (takeDepthSnapshot)
 
 
+-- Orphan instance so that we can derive Ord
+instance Ord Vec3 where
+
+
 data Cloud = Cloud
   { cloudColor :: Color3 GLfloat
-  , cloudPoints :: [(Float, Float, Float)]
-  , cloudNumPoints :: Int
+  , cloudPoints :: Vector Vec3
   } deriving (Eq, Ord, Show)
 
 data Clouds = Clouds
@@ -138,13 +147,13 @@ drawPointClouds state@State{ transient = TransientState{ sClouds } } = do
   Clouds{ allocatedClouds } <- get sClouds
 
   -- Render all clouds
-  forM_ (Map.toList allocatedClouds) $ \(bufObj, Cloud{ cloudColor = col, cloudNumPoints = n }) -> do
+  forM_ (Map.toList allocatedClouds) $ \(bufObj, Cloud{ cloudColor = col, cloudPoints }) -> do
 
     color col
     clientState VertexArray $= Enabled
     bindBuffer ArrayBuffer $= Just bufObj
     arrayPointer VertexArray $= VertexArrayDescriptor 3 Float 0 nullPtr
-    drawArrays Points 0 (fromIntegral n)
+    drawArrays Points 0 (fromIntegral $ V.length cloudPoints)
     bindBuffer ArrayBuffer $= Nothing
     clientState VertexArray $= Disabled
 
@@ -155,12 +164,10 @@ processCloudQueue State{ transient = TransientState{ sClouds }, queuedClouds } =
   -- Get out queued clouds, set queued clouds to []
   queued <- atomicModifyIORef' queuedClouds (\cls -> ([], cls))
 
-  forM_ queued $ \cloud -> do
-
-    let flat = concat [ [x,y,z] | (x,y,z) <- cloudPoints cloud ]
+  forM_ queued $ \cloud@Cloud{ cloudPoints } -> do
 
     -- Allocate buffer object containing all these points
-    bufObj <- makeBuffer ArrayBuffer flat
+    bufObj <- fromVector ArrayBuffer cloudPoints
 
     modifyIORef sClouds $
       \p@Clouds{ allocatedClouds = cloudMap } ->
@@ -175,8 +182,8 @@ addPointCloud State{ queuedClouds } cloud = do
 initializeObjects :: State -> IO ()
 initializeObjects state = do
 
-  let ps = [(1,2,3),(4,5,6)]
-  addPointCloud state $ Cloud (Color3 0 1 0) ps (length ps)
+  let points = map mkVec3 [(1,2,3),(4,5,6)]
+  addPointCloud state $ Cloud (Color3 0 1 0) (V.fromList points)
 
 
 -- |Displays a quad
@@ -440,9 +447,9 @@ addRandomPoints state = do
   x <- randomRIO (0, 10)
   y <- randomRIO (0, 10)
   z <- randomRIO (0, 10)
-  let ps = [(x+1,y+2,z+3),(x+4,y+5,z+6)]
+  let points = map mkVec3 [(x+1,y+2,z+3),(x+4,y+5,z+6)]
       colour = Color3 (realToFrac $ x/10) (realToFrac $ y/10) (realToFrac $ z/10)
-  addPointCloud state $ Cloud colour ps (length ps)
+  addPointCloud state $ Cloud colour (V.fromList points)
 
 
 addDevicePointCloud :: State -> IO ()
@@ -453,20 +460,26 @@ addDevicePointCloud state = do
 
   case s of
     Left err -> hPutStrLn stderr $ "WARNING: " ++ err
-    Right (depthVec, (width, height)) -> do
+    Right (depthVec, (width, _height)) -> do
 
       r <- randomRIO (0, 1)
       g <- randomRIO (0, 1)
       b <- randomRIO (0, 1)
 
-      let points = [ ( fromIntegral x / 10.0
-                     , fromIntegral y / 10.0
-                     , fromIntegral depth / 40.0 - 20.0
-                     ) | x <- [0..width-1]
-                       , y <- [0..height-1]
-                       , let depth = depthVec ! (y * width + x)
-                       , depth /= 0
-                   ]
-          colour = Color3 r g b
+      let points =   V.map scalePoints
+                   . V.filter (\(Vec3 _ _ d) -> d /= 0) -- remove 0 depth points
+                   . V.imap (\i depth ->                -- convert x/y/d to floats
+                       let (y, x) = i `quotRem` width
+                        in Vec3 (fromIntegral x) (fromIntegral y) (fromIntegral depth)
+                     )
+                   $ depthVec
 
-      addPointCloud state $ Cloud colour points (length points)
+      addPointCloud state $ Cloud (Color3 r g b) points
+
+  where
+    -- Scale the points from the camera so that they appear nicely in 3D space.
+    -- TODO remove X/Y scaling by changing the camera in the viewer
+    -- TODO Use camera intrinsics + error correction function
+    scalePoints (Vec3 x y d) = Vec3 (x / 10.0)
+                                    (y / 10.0)
+                                    (d / 40.0 - 20.0)
