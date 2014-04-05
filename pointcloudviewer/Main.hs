@@ -180,10 +180,8 @@ addPointCloud State{ queuedClouds } cloud = do
 
 
 initializeObjects :: State -> IO ()
-initializeObjects state = do
-
-  let points = map mkVec3 [(1,2,3),(4,5,6)]
-  addPointCloud state $ Cloud (Color3 0 1 0) (V.fromList points)
+initializeObjects _state = do
+  return ()
 
 
 -- |Displays a quad
