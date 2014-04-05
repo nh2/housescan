@@ -26,4 +26,4 @@ executable pointcloudviewer
                      , time >= 1.4
                      , foreign-store >= 0.0
                      , spool >= 0.1
-  ghc-options: -threaded
+  ghc-options: -Wall -threaded

@@ -9,7 +9,6 @@ import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Int (Int64)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
-import           Data.Vector.Storable (Vector, (!))
 import           Foreign.Ptr (nullPtr)
 import           Foreign.Store (newStore, lookupStore, readStore)
 import           Graphics.GLUtil
@@ -18,10 +17,6 @@ import           System.Random (randomRIO)
 import           System.SelfRestart (forkSelfRestartExePollWithAction)
 import           System.IO (hPutStrLn, stderr)
 import           System.IO.Unsafe (unsafePerformIO)
-import           Honi (Oni)
-import qualified Honi as Honi
-import           Honi.Types (SensorType (SensorDepth))
-import qualified Honi.Types as Honi
 
 import           HoniHelper (takeDepthSnapshot)
 
@@ -250,8 +245,8 @@ idle State{..} = do
 
   -- If a restart is requested, stop the main loop.
   -- The code after the main loop will do the actual restart.
-  restart <- get sRestartRequested
-  when restart leaveMainLoop
+  shallRestart <- get sRestartRequested
+  when shallRestart leaveMainLoop
 
 
 -- | Called when the OpenGL window is closed.
@@ -262,10 +257,10 @@ close State{..} = do
 
 -- |Mouse motion
 motion :: State -> Position -> IO ()
-motion State{..} (Position x y) = do
+motion State{..} (Position posx posy) = do
   ( mx, my ) <- get sMouse
-  let diffX = fromIntegral $ x - mx
-      diffY = fromIntegral $ y - my
+  let diffX = fromIntegral $ posx - mx
+      diffY = fromIntegral $ posy - my
 
   get sDragMode >>= \case
     Just Rotate -> do
@@ -276,7 +271,7 @@ motion State{..} (Position x y) = do
       sPan $~! (\(x,y,z) -> (x - (diffX * 0.03 * zoom), y + (diffY * 0.03 * zoom), z) )
     _ -> return ()
 
-  sMouse $= ( x, y )
+  sMouse $= ( posx, posy )
 
 
 changeFps :: State -> (Int -> Int) -> IO ()
@@ -306,9 +301,8 @@ input state (Char '[') Down _ _ = changeFps state pred
 input state (Char ']') Down _ _ = changeFps state succ
 input state (Char 'p') Down _ _ = addRandomPoints state
 input state (Char '\r') Down _ _ = addDevicePointCloud state
-input state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
-input _mxy _ _ _ _
-  = return ()
+input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
+input _state _ _ _ _ = return ()
 
 
 -- |Mouse wheel movement (sZoom)
@@ -368,7 +362,7 @@ mainState state@State{..} = do
       emptytTransientState <- createTransientState
       void $ newStore state{ transient = emptytTransientState }
 
-  forkSelfRestartExePollWithAction 1.0 $ do
+  _ <- forkSelfRestartExePollWithAction 1.0 $ do
     putStrLn "executable changed, restarting"
     threadDelay 1500000
 
