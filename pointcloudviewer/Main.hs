@@ -23,7 +23,7 @@ import qualified Honi as Honi
 import           Honi.Types (SensorType (SensorDepth))
 import qualified Honi.Types as Honi
 
-import           HoniHelper (takeDepthSnapshot, withHoni)
+import           HoniHelper (takeDepthSnapshot)
 
 
 data Cloud = Cloud
@@ -305,7 +305,7 @@ input state (MouseButton WheelUp) Down _ pos
 input state (Char '[') Down _ _ = changeFps state pred
 input state (Char ']') Down _ _ = changeFps state succ
 input state (Char 'p') Down _ _ = addRandomPoints state
-input state (Char '\r') Down _ _ = withHoni $ addDevicePointCloud state
+input state (Char '\r') Down _ _ = addDevicePointCloud state
 input state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _mxy _ _ _ _
   = return ()

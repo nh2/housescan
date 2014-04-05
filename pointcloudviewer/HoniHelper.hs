@@ -24,6 +24,10 @@ import           System.IO (hPutStrLn, stderr)
 -- Don't forget to initialize OpenNI first, using `withHoni` or `initialize`.
 takeDepthSnapshot :: IO (Either String (Vector Word16, Int, Int))
 takeDepthSnapshot = do
+  -- A little bit dirty, but double initialization is allowed:
+  -- https://github.com/OpenNI/OpenNI2/blob/33355e/Source/Core/OniContext.cpp#L50
+  initialize oniApiVersion
+
   getDeviceList `orWarn` \case
     []   -> return $ Left "No depth device"
     di:_ -> deviceOpenInfo di `orWarn` \d -> do
