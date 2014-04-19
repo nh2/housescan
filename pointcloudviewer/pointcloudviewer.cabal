@@ -27,4 +27,6 @@ executable pointcloudviewer
                      , foreign-store >= 0.0
                      , spool >= 0.1
                      , vect >= 0.4.7
+                     , KdTree >= 0.2.1
+                     , safe >= 0.3.4
   ghc-options: -Wall -threaded
