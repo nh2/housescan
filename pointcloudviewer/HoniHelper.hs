@@ -5,6 +5,7 @@ module HoniHelper
   , withHoni
   ) where
 
+import           Control.Monad
 import qualified Data.ByteString as BS
 import           Data.Vector.Storable (Vector)
 import           Data.Word (Word16)
@@ -48,7 +49,8 @@ bsToVector16Bits = byteStringToVector
 -- | Wrap an action in `initialize` and `shutdown`.
 withHoni :: IO a -> IO a
 withHoni f = do
-  initialize oniApiVersion
+  status <- initialize oniApiVersion
+  when (status /= StatusOK) $ error $ "withHoni: " ++ show status
   x <- f
   shutdown
   return x
