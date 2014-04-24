@@ -102,7 +102,7 @@ display state@State{..} = do
   z                 <- get sZoom
   ( tx, ty, tz )    <- get sPan
 
-  clear [ ColorBuffer, DepthBuffer ]
+  clear [ ColorBuffer, DepthBuffer, StencilBuffer ]
 
 
   matrixMode $= Projection
@@ -133,7 +133,7 @@ display state@State{..} = do
 
   preservingMatrix $ drawObjects state
 
-  flush
+  swapBuffers
 
   getTimeUs >>= \now -> sLastLoopTime $= Just now
 
@@ -383,7 +383,14 @@ mainState state@State{..} = do
     putStrLn "executable changed, restarting"
     threadDelay 1500000
 
-  void $ getArgsAndInitialize >> createWindow "3D cloud viewer"
+  -- Initialize OpenGL
+  getArgsAndInitialize
+
+  -- Enable double buffering
+  initialDisplayMode $= [RGBAMode, WithDepthBuffer, DoubleBuffered]
+
+  -- Create window
+  _ <- createWindow "3D cloud viewer"
   sGlInitialized $= True
 
   -- OpenGL
