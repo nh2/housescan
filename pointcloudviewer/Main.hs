@@ -1,4 +1,4 @@
-{-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase, ScopedTypeVariables #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Main where
@@ -19,7 +19,10 @@ import           Data.Vect.Float hiding (Vector)
 import           Data.Vect.Float.Instances ()
 import           Data.Vector.Storable (Vector)
 import qualified Data.Vector.Storable as V
-import           Foreign.Ptr (nullPtr)
+import           Foreign.C.Types (CInt)
+import           Foreign.Marshal.Alloc (alloca)
+import           Foreign.Ptr (Ptr, nullPtr)
+import           Foreign.Storable (peek)
 import           Foreign.Store (newStore, lookupStore, readStore)
 import           Graphics.GLUtil
 import           Graphics.UI.GLUT
@@ -197,6 +200,9 @@ initializeObjects _state = do
 displayQuad :: GLfloat -> GLfloat -> GLfloat -> IO ()
 displayQuad w h d = preservingMatrix $ do
   scale w h d
+
+  stencilFunc $= (Always, 1, 0xff) -- allow picking the quad as ID 1
+
   renderPrimitive Quads $ do
     color3 1.0 0.0 0.0
     vertex3 (-1.0) ( 1.0) ( 1.0)
@@ -293,9 +299,20 @@ changeFps State{ sFps } f = do
   sFps $~ f
   putStrLn . ("FPS: " ++) . show =<< get sFps
 
+
+printStencilValue :: State -> CInt -> CInt -> IO ()
+printStencilValue State{ sSize } x y = do
+  ( _width, height ) <- get sSize -- TODO query freshly
+  val <- alloca $ \(intPtr :: Ptr CInt) -> do
+    readPixels (Position x (height-y-1)) (Size 1 1) (PixelData StencilIndex UnsignedInt intPtr)
+    peek intPtr
+  putStrLn $ "stencil value at " ++ show (x,height-y-1) ++ ": " ++ show val
+
+
 -- |Button input
 input :: State -> Key -> KeyState -> Modifiers -> Position -> IO ()
-input State{..} (MouseButton LeftButton) Down _ (Position x y) = do
+input state@State{..} (MouseButton LeftButton) Down _ (Position x y) = do
+  printStencilValue state x y
   sMouse $= ( x, y )
   sDragMode $= Just Translate
 input State{..} (MouseButton LeftButton) Up _ (Position x y) = do
@@ -400,6 +417,11 @@ mainState state@State{..} = do
   depthFunc   $= Just Lequal
   lineWidth   $= 3.0
   pointSize   $= 1.0
+
+  -- Enable stencil buffer for picking
+  stencilTest  $= Enabled
+  clearStencil $= 0
+  stencilOp    $= (OpKeep, OpKeep, OpReplace)
 
   -- Callbacks
   displayCallback       $= display state
