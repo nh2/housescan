@@ -576,5 +576,3 @@ drawCorrespondenceLines state@State{ transient = TransientState{ sCorrespondence
                     vertexVec3 p1
                     vertexVec3 p2
                   _ -> return ()
-
-  flush
