@@ -32,6 +32,7 @@ import           Graphics.UI.GLUT hiding (Plane)
 import           Linear (V3(..))
 import qualified PCD.Data as PCD
 import           System.Endian (fromBE32)
+import           System.FilePath ((</>))
 import           System.Random (randomRIO)
 import           System.SelfRestart (forkSelfRestartExePollWithAction)
 import           System.IO (hPutStrLn, stderr)
@@ -77,7 +78,7 @@ data State
           , sRestartFunction :: IORef (IO ())
           -- Object picking
           , sPickingDisabled :: IORef Bool
-          , sPickObjectAt :: IORef (Maybe (Int,Int))
+          , sPickObjectAt :: IORef (Maybe ((Int,Int), Maybe ID -> IO ()))
           , sUnderCursor :: IORef (Maybe ID)
           , sDebugPickingDrawVisible :: IORef Bool
           , sDebugPickingTiming :: IORef Bool
@@ -159,10 +160,10 @@ display state@State{..} = do
   -- Do pick rendering (using color picking)
   pickingDisabled <- get sPickingDisabled
   get sPickObjectAt >>= \case
-    Just (x,y) | not pickingDisabled -> do
+    Just ((x,y), callback) | not pickingDisabled -> do
       i <- colorPicking state (x,y)
       sPickObjectAt $= Nothing
-      sUnderCursor $= if i == noID then Nothing else Just i
+      callback i
     _ -> return ()
 
   -- Do the normal rendering of all objects
@@ -191,7 +192,8 @@ idToColor i = Color4 (fromIntegral r / 255.0)
 -- | Render all objects with a distinct color to find out which object
 -- is at a given (x,y) coordinate.
 -- (x,y) must not be off-screen since `readPixels` is used.
-colorPicking :: State -> (Int, Int) -> IO ID
+-- Returns `Nothing` if the background is picked.
+colorPicking :: State -> (Int, Int) -> IO (Maybe ID)
 colorPicking state@State{ transient = TransientState{..}, ..} (x, y) = do
   timeBefore <- getPOSIXTime
 
@@ -237,7 +239,7 @@ colorPicking state@State{ transient = TransientState{..}, ..} (x, y) = do
     timeAfter <- getPOSIXTime
     putStrLn $ "Picking took " ++ show (timeAfter - timeBefore) ++ " s"
 
-  return i
+  return $ if i == noID then Nothing else Just i
 
 
 on :: HasGetter a => a Bool -> IO () -> IO ()
@@ -461,9 +463,9 @@ motion State{..} (Position posx posy) = do
 
 -- | Mouse motion (without buttons pressed)
 passiveMotion :: State -> Position -> IO ()
-passiveMotion State{..} (Position posx posy) = do
+passiveMotion state@State{..} (Position posx posy) = do
 
-  sPickObjectAt $= Just (c2i posx, c2i posy)
+  sPickObjectAt $= Just ((c2i posx, c2i posy), objectHover state)
 
 
 
@@ -475,8 +477,8 @@ changeFps State{ sFps } f = do
 
 -- |Button input
 input :: State -> Key -> KeyState -> Modifiers -> Position -> IO ()
-input State{..} (MouseButton LeftButton) Down _ (Position x y) = do
-  sPickObjectAt $= Just (c2i x, c2i y)
+input state@State{..} (MouseButton LeftButton) Down _ (Position x y) = do
+  sPickObjectAt $= Just ((c2i x, c2i y), objectClick state)
   sMouse $= ( x, y )
   sDragMode $= Just Translate
 input State{..} (MouseButton LeftButton) Up _ (Position x y) = do
@@ -499,6 +501,19 @@ input state (Char '\r') Down _ _ = addDevicePointCloud state
 input state (Char 'c') Down _ _ = addCorrespondences state
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
+
+
+-- | Called when picking notices a hover over an object
+objectHover :: State -> Maybe ID -> IO ()
+objectHover State{..} m'i = do
+  sUnderCursor $= m'i
+
+
+-- | Called when picking notices a click on an object
+objectClick :: State -> Maybe ID -> IO ()
+objectClick _      Nothing  = putStrLn $ "Clicked: Background"
+objectClick _state (Just i) = do
+  putStrLn $ "Clicked: " ++ show i
 
 
 -- |Mouse wheel movement (sZoom)
