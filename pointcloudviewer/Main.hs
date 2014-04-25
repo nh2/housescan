@@ -192,6 +192,7 @@ idToColor i = Color4 (fromIntegral r / 255.0)
 
 -- | Render all objects with a distinct color to find out which object
 -- is at a given (x,y) coordinate.
+-- (x,y) must not be off-screen since `readPixels` is used.
 colorPicking :: State -> Int -> Int -> IO ID
 colorPicking state@State{ transient = TransientState{..}, ..} x y = do
   timeBefore <- getPOSIXTime
@@ -222,6 +223,8 @@ colorPicking state@State{ transient = TransientState{..}, ..} x y = do
     i <- alloca $ \(rgbaPtr :: Ptr Word32) -> do
       -- We disable blending for the pick rendering so we can use the
       -- full 32 bits of RGBA for color picking.
+      -- readPixels is undefined for off-screen coordinates, so we
+      -- require (x,y) to be on-screen.
       readPixels (Position (i2c x) (height-(i2c y)-1)) (Size 1 1) (PixelData RGBA UnsignedByte rgbaPtr)
       -- The color is stored in memory as R-G-B-A bytes, so we have to convert it to big-endian.
       fromBE32 <$> peek rgbaPtr
