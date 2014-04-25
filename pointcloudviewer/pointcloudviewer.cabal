@@ -29,4 +29,5 @@ executable pointcloudviewer
                      , vect >= 0.4.7
                      , KdTree >= 0.2.1
                      , safe >= 0.3.4
+                     , cpu >= 0.1.2
   ghc-options: -Wall -threaded

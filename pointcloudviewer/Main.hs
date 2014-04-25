@@ -1,4 +1,4 @@
-{-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase, ScopedTypeVariables #-}
+{-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase, MultiWayIf, ScopedTypeVariables #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Main where
@@ -6,6 +6,7 @@ module Main where
 import           Control.Applicative
 import           Control.Concurrent
 import           Control.Monad
+import           Data.Bits (unsafeShiftR)
 import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -19,6 +20,7 @@ import           Data.Vect.Float hiding (Vector)
 import           Data.Vect.Float.Instances ()
 import           Data.Vector.Storable (Vector)
 import qualified Data.Vector.Storable as V
+import           Data.Word
 import           Foreign.C.Types (CInt)
 import           Foreign.Marshal.Alloc (alloca)
 import           Foreign.Ptr (Ptr, nullPtr)
@@ -27,6 +29,7 @@ import           Foreign.Store (newStore, lookupStore, readStore)
 import           Graphics.GLUtil
 import           Graphics.UI.GLUT
 import           Safe
+import           System.Endian (fromBE32)
 import           System.Random (randomRIO)
 import           System.SelfRestart (forkSelfRestartExePollWithAction)
 import           System.IO (hPutStrLn, stderr)
@@ -69,15 +72,36 @@ data State
           , sRestartRequested :: IORef Bool
           , sGlInitialized :: IORef Bool
           , sRestartFunction :: IORef (IO ())
+          -- Object picking
+          , sPickingDisabled :: IORef Bool
+          , sPickObjectAt :: IORef (Maybe (Int,Int))
+          , sUnderCursor :: IORef (Maybe ID)
+          , sDebugPickingDrawVisible :: IORef Bool
+          , sDebugPickingTiming :: IORef Bool
           -- Correspondences
           , sKdDistance :: IORef Double
           , transient :: TransientState
           }
 
 data TransientState
-  = TransientState { sClouds :: IORef Clouds
+  = TransientState { sNextID :: IORef ID
+                   , sPickingMode :: IORef Bool
+                   , sClouds :: IORef Clouds
                    , sCorrespondenceLines :: IORef [(Vec3, Maybe Vec3)]
                    }
+
+
+type ID = Word32
+
+-- We pick maxBound as the ID for "there is no object there".
+noID :: ID
+noID = maxBound
+
+
+genID :: State -> IO ID
+genID State{ transient = TransientState{ sNextID } } =
+  atomicModifyIORef' sNextID (\i -> (i+1 `mod` noID, i))
+
 
 -- |Sets the vertex color
 color3 :: GLfloat -> GLfloat -> GLfloat -> IO ()
@@ -95,6 +119,15 @@ getTimeUs :: IO Int64
 getTimeUs = round . (* 1000000.0) <$> getPOSIXTime
 
 
+withDisabled :: [StateVar Capability] -> IO b -> IO b
+withDisabled vars f = do
+  befores <- mapM get vars
+  mapM_ ($= Disabled) vars
+  x <- f
+  zipWithM_ ($=) vars befores
+  return x
+
+
 -- |Called when stuff needs to be drawn
 display :: State -> DisplayCallback
 display state@State{..} = do
@@ -105,8 +138,7 @@ display state@State{..} = do
   z                 <- get sZoom
   ( tx, ty, tz )    <- get sPan
 
-  clear [ ColorBuffer, DepthBuffer, StencilBuffer ]
-
+  let buffers = [ ColorBuffer, DepthBuffer, StencilBuffer ]
 
   matrixMode $= Projection
   loadIdentity
@@ -120,7 +152,119 @@ display state@State{..} = do
   rotate rx $ Vector3 1 0 0
   rotate ry $ Vector3 0 1 0
 
-  -- |Draw reference system
+  -- Do pick rendering (using color picking)
+  pickingDisabled <- get sPickingDisabled
+  get sPickObjectAt >>= \case
+    Just (x,y) | not pickingDisabled -> do
+      i <- colorPicking state x y
+      sPickObjectAt $= Nothing
+      sUnderCursor $= if i == noID then Nothing else Just i
+    _ -> return ()
+
+  -- Do the normal rendering of all objects
+  clear buffers
+  preservingMatrix $ drawObjects state
+  swapBuffers
+
+  getTimeUs >>= \now -> sLastLoopTime $= Just now
+
+
+idToColor :: ID -> Color4 GLfloat
+idToColor i = Color4 (fromIntegral r / 255.0)
+                     (fromIntegral g / 255.0)
+                     (fromIntegral b / 255.0)
+                     (fromIntegral a / 255.0)
+  where
+    -- From http://stackoverflow.com/questions/664014
+    -- hash(i)=i*2654435761 mod 2^32
+    col32 = i `rem` noID -- (2654435761 * i) `rem` noID :: Word32 -- noID == maxBound itself is for "no ID" -- TODO find inverse
+    r = fromIntegral $ col32 `unsafeShiftR` 24 :: Word8
+    g = fromIntegral $ col32 `unsafeShiftR` 16 :: Word8
+    b = fromIntegral $ col32 `unsafeShiftR`  8 :: Word8
+    a = fromIntegral $ col32                   :: Word8
+
+
+-- | Render all objects with a distinct color to find out which object
+-- is at a given (x,y) coordinate.
+colorPicking :: State -> Int -> Int -> IO ID
+colorPicking state@State{ transient = TransientState{..}, ..} x y = do
+  timeBefore <- getPOSIXTime
+
+  -- Draw background white
+  col <- get clearColor
+  clearColor $= Color4 1 1 1 1 -- this gives us 0xffffffff == maxBound == noID
+  clear [ ColorBuffer, DepthBuffer ] -- we need color and depth for picking
+  clearColor $= col
+
+  -- Note: We could probably use glScissor here to restrict drawing to the
+  --       one pixel requested.
+
+  i <- withDisabled [ texture Texture2D -- not sure if we should also disable other texture targets
+                    , fog
+                    , lighting
+                    , blend
+                    ] $ do
+
+    sPickingMode $= True
+    preservingMatrix $ drawObjects state
+    sPickingMode $= False
+    flush -- so that readPixels reads what we just drew
+
+    ( _, height ) <- get sSize
+
+    -- Get the ID
+    i <- alloca $ \(rgbaPtr :: Ptr Word32) -> do
+      -- We disable blending for the pick rendering so we can use the
+      -- full 32 bits of RGBA for color picking.
+      readPixels (Position (i2c x) (height-(i2c y)-1)) (Size 1 1) (PixelData RGBA UnsignedByte rgbaPtr)
+      -- The color is stored in memory as R-G-B-A bytes, so we have to convert it to big-endian.
+      fromBE32 <$> peek rgbaPtr
+
+    -- For debugging we can actually draw the unique colors.
+    -- This must happen after readPixels becaus swapBuffers makes the buffer undefined.
+    on sDebugPickingDrawVisible swapBuffers
+
+    return i
+
+  on sDebugPickingDrawVisible $ do
+    timeAfter <- getPOSIXTime
+    putStrLn $ "Picking took " ++ show (timeAfter - timeBefore) ++ " s"
+
+  return i
+
+
+on :: HasGetter a => a Bool -> IO () -> IO ()
+on var f = get var >>= \enabled -> when enabled f
+
+
+i2c :: Int -> CInt
+i2c = fromIntegral
+
+c2i :: CInt -> Int
+c2i = fromIntegral
+
+
+-- |Draws the objects to show
+drawObjects :: State -> IO ()
+drawObjects state@State{ transient = TransientState{ sPickingMode } } = do
+  picking <- get sPickingMode
+
+  -- Objects must only be drawn in picking mode when they are colour picking
+  -- aware, that is they query the picking mode and draw themselves only in
+  -- colors generated by `idToColor <$> genID` if we are picking.
+
+  when (not picking) $ drawReferenceSystem
+
+  when (not picking) $ drawPointClouds state
+
+  when (not picking) $ drawCorrespondenceLines state
+
+
+drawReferenceSystem :: IO ()
+drawReferenceSystem = do
+
+  displayQuad 1 1 1
+
   renderPrimitive Lines $ do
     color3 1.0 0.0 0.0
     vertex3 0.0 0.0 0.0
@@ -134,20 +278,6 @@ display state@State{..} = do
     vertex3 0.0 0.0 0.0
     vertex3 0.0 0.0 20.0
 
-  preservingMatrix $ drawObjects state
-
-  swapBuffers
-
-  getTimeUs >>= \now -> sLastLoopTime $= Just now
-
--- |Draws the objects to show
-drawObjects :: State -> IO ()
-drawObjects state = do
-  displayQuad 1 1 1
-
-  drawPointClouds state
-
-  drawCorrespondenceLines state
 
 
 drawPointClouds :: State -> IO ()
@@ -275,12 +405,15 @@ close State{..} = do
   putStrLn "window closed"
 
 
--- |Mouse motion
+-- | Mouse motion (with buttons pressed)
 motion :: State -> Position -> IO ()
 motion State{..} (Position posx posy) = do
-  ( mx, my ) <- get sMouse
-  let diffX = fromIntegral $ posx - mx
-      diffY = fromIntegral $ posy - my
+
+  ( oldx, oldy ) <- get sMouse
+  let diffX = fromIntegral $ posx - oldx
+      diffY = fromIntegral $ posy - oldy
+
+  sMouse $= ( posx, posy )
 
   get sDragMode >>= \case
     Just Rotate -> do
@@ -291,7 +424,13 @@ motion State{..} (Position posx posy) = do
       sPan $~! (\(x,y,z) -> (x - (diffX * 0.03 * zoom), y + (diffY * 0.03 * zoom), z) )
     _ -> return ()
 
-  sMouse $= ( posx, posy )
+
+-- | Mouse motion (without buttons pressed)
+passiveMotion :: State -> Position -> IO ()
+passiveMotion State{..} (Position posx posy) = do
+
+  sPickObjectAt $= Just (c2i posx, c2i posy)
+
 
 
 changeFps :: State -> (Int -> Int) -> IO ()
@@ -313,6 +452,7 @@ printStencilValue State{ sSize } x y = do
 input :: State -> Key -> KeyState -> Modifiers -> Position -> IO ()
 input state@State{..} (MouseButton LeftButton) Down _ (Position x y) = do
   printStencilValue state x y
+  sPickObjectAt $= Just (c2i x, c2i y)
   sMouse $= ( x, y )
   sDragMode $= Just Translate
 input State{..} (MouseButton LeftButton) Up _ (Position x y) = do
@@ -362,6 +502,11 @@ createState = do
   sRestartRequested <- newIORef False
   sGlInitialized    <- newIORef False
   sRestartFunction  <- newIORef (error "restartFunction called before set")
+  sPickingDisabled  <- newIORef False
+  sPickObjectAt     <- newIORef Nothing
+  sUnderCursor      <- newIORef Nothing
+  sDebugPickingDrawVisible <- newIORef False
+  sDebugPickingTiming      <- newIORef False
   sKdDistance       <- newIORef 0.5
   transient         <- createTransientState
 
@@ -370,6 +515,8 @@ createState = do
 
 createTransientState :: IO TransientState
 createTransientState = do
+  sNextID <- newIORef 1
+  sPickingMode <- newIORef False
   sClouds <- newIORef (Clouds Map.empty)
   sCorrespondenceLines <- newIORef []
   return TransientState{..}
@@ -429,6 +576,7 @@ mainState state@State{..} = do
   idleCallback          $= Just (idle state)
   mouseWheelCallback    $= Just (wheel state)
   motionCallback        $= Just (motion state)
+  passiveMotionCallback $= Just (passiveMotion state)
   keyboardMouseCallback $= Just (input state)
   closeCallback         $= Just (close state)
 
