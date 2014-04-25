@@ -6,7 +6,9 @@ module Main where
 import           Control.Applicative
 import           Control.Concurrent
 import           Control.Monad
+import           Data.Attoparsec.ByteString.Char8 (parseOnly, sepBy1', double, endOfLine, skipSpace)
 import           Data.Bits (unsafeShiftR)
+import qualified Data.ByteString as BS
 import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -27,7 +29,9 @@ import           Foreign.Ptr (Ptr, nullPtr)
 import           Foreign.Storable (peek)
 import           Foreign.Store (newStore, lookupStore, readStore)
 import           Graphics.GLUtil
-import           Graphics.UI.GLUT
+import           Graphics.UI.GLUT hiding (Plane)
+import           Linear (V3(..))
+import qualified PCD.Data as PCD
 import           Safe
 import           System.Endian (fromBE32)
 import           System.Random (randomRIO)
@@ -89,6 +93,7 @@ data TransientState
                    , sPickingMode :: IORef Bool
                    , sClouds :: IORef Clouds
                    , sCorrespondenceLines :: IORef [(Vec3, Maybe Vec3)]
+                   , sPolygons :: IORef [(ID, Vector Vec3, Color3 GLfloat)]
                    }
 
 
@@ -260,6 +265,8 @@ drawObjects state@State{ transient = TransientState{ sPickingMode } } = do
 
   when (not picking) $ drawCorrespondenceLines state
 
+  drawPolygons state
+
 
 drawReferenceSystem :: IO ()
 drawReferenceSystem = do
@@ -299,6 +306,35 @@ drawPointClouds state@State{ transient = TransientState{ sClouds } } = do
     drawArrays Points 0 (i2c $ V.length cloudPoints)
     bindBuffer ArrayBuffer $= Nothing
     clientState VertexArray $= Disabled
+
+
+drawPolygons :: State -> IO ()
+drawPolygons State{ sUnderCursor, transient = TransientState{ sPolygons, sPickingMode } } = do
+
+  pols <- get sPolygons
+  picking <- get sPickingMode
+  underCursor <- get sUnderCursor
+
+  let drawPolys = do
+        forM_ pols $ \(i, points, Color3 r g b) -> do
+
+          stencilFunc $= (Always, fromIntegral i, 0xff)
+
+          renderPrimitive Polygon $ do
+            color $ if
+              | picking               -> idToColor i
+              | underCursor == Just i -> Color4 r g b 0.8
+              | otherwise             -> Color4 r g b 0.5
+            V.mapM_ vertexVec3 points
+
+  -- Get "real" transparency for overlapping polygons by drawing them last,
+  -- and disabling the depth test for their drawing
+  -- (transparency must be 0.5 for all polygons for this technique).
+  -- From http://stackoverflow.com/questions/4127242
+  -- If we are picking, of course we don't want any color blending, so we
+  -- keep the depth test on.
+  if picking then                          drawPolys
+             else withDisabled [depthMask] drawPolys
 
 
 processCloudQueue :: State -> IO ()
@@ -520,6 +556,7 @@ createTransientState = do
   sPickingMode <- newIORef False
   sClouds <- newIORef (Clouds Map.empty)
   sCorrespondenceLines <- newIORef []
+  sPolygons <- newIORef []
   return TransientState{..}
 
 
@@ -562,6 +599,8 @@ mainState state@State{..} = do
   shadeModel  $= Smooth
   depthMask   $= Enabled
   depthFunc   $= Just Lequal
+  blend       $= Enabled
+  blendFunc   $= (SrcAlpha, OneMinusSrcAlpha)
   lineWidth   $= 3.0
   pointSize   $= 1.0
 
@@ -627,6 +666,12 @@ restart = do
         True  -> do sRestartRequested $= True
                     sRestartFunction $= mainState state
         False -> void $ forkIO $ mainState state
+
+
+getRandomColor :: IO (Color3 GLfloat)
+getRandomColor = Color3 <$> randomRIO (0,1)
+                        <*> randomRIO (0,1)
+                        <*> randomRIO (0,1)
 
 
 -- Add some random points as one point cloud
@@ -753,3 +798,46 @@ drawCorrespondenceLines state@State{ transient = TransientState{ sCorrespondence
                     vertexVec3 p1
                     vertexVec3 p2
                   _ -> return ()
+
+
+loadPCDFileXyzFloat :: FilePath -> IO (Vector Vec3)
+loadPCDFileXyzFloat file = V.map v3toVec3 <$> PCD.loadXyz file
+  where
+    v3toVec3 (V3 a b c) = Vec3 a b c
+
+
+loadPCDFile :: State -> FilePath -> IO ()
+loadPCDFile state file = do
+  points <- loadPCDFileXyzFloat file
+  addPointCloud state (Cloud (Color3 1 0 0) points)
+
+
+data Plane = Plane Double Double Double Double -- parameters: a b c d
+  deriving (Eq, Ord, Show)
+
+
+loadPlanes :: State -> FilePath -> IO ()
+loadPlanes _state file = do
+  let doubleS = double <* skipSpace
+      planesParser = (Plane <$> doubleS <*> doubleS <*> doubleS <*> double)
+                     `sepBy1'` endOfLine
+  planes <- parseOnly planesParser <$> BS.readFile file
+  print planes
+
+
+addBoundingHulls :: State -> IO ()
+addBoundingHulls state@State{ transient = TransientState{ sPolygons } } = do
+  forM_ [ "cloud_plane_hull0.pcd"
+        , "cloud_plane_hull1.pcd"
+        , "cloud_plane_hull2.pcd"
+        , "cloud_plane_hull3.pcd"
+        , "cloud_plane_hull4.pcd"
+        ] $ \name -> do
+    let file = "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls/" ++ name
+    putStrLn $ "Loading " ++ file
+
+    points <- loadPCDFileXyzFloat file
+    col <- getRandomColor
+    i <- genID state
+
+    sPolygons $~ ((i, points, col):)
