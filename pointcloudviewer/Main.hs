@@ -162,7 +162,7 @@ display state@State{..} = do
   pickingDisabled <- get sPickingDisabled
   get sPickObjectAt >>= \case
     Just (x,y) | not pickingDisabled -> do
-      i <- colorPicking state x y
+      i <- colorPicking state (x,y)
       sPickObjectAt $= Nothing
       sUnderCursor $= if i == noID then Nothing else Just i
     _ -> return ()
@@ -193,8 +193,8 @@ idToColor i = Color4 (fromIntegral r / 255.0)
 -- | Render all objects with a distinct color to find out which object
 -- is at a given (x,y) coordinate.
 -- (x,y) must not be off-screen since `readPixels` is used.
-colorPicking :: State -> Int -> Int -> IO ID
-colorPicking state@State{ transient = TransientState{..}, ..} x y = do
+colorPicking :: State -> (Int, Int) -> IO ID
+colorPicking state@State{ transient = TransientState{..}, ..} (x, y) = do
   timeBefore <- getPOSIXTime
 
   -- Draw background white
