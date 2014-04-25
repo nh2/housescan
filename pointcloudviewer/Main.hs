@@ -53,6 +53,7 @@ data Clouds = Clouds
 data DragMode = Rotate | Translate
   deriving (Eq, Ord, Show)
 
+-- TODO make all State/TransientState fields strict so that we get an error if not initialized
 
 -- |Application state
 data State
@@ -295,7 +296,7 @@ drawPointClouds state@State{ transient = TransientState{ sClouds } } = do
     clientState VertexArray $= Enabled
     bindBuffer ArrayBuffer $= Just bufObj
     arrayPointer VertexArray $= VertexArrayDescriptor 3 Float 0 nullPtr
-    drawArrays Points 0 (fromIntegral $ V.length cloudPoints)
+    drawArrays Points 0 (i2c $ V.length cloudPoints)
     bindBuffer ArrayBuffer $= Nothing
     clientState VertexArray $= Disabled
 
@@ -548,7 +549,7 @@ mainState state@State{..} = do
     threadDelay 1500000
 
   -- Initialize OpenGL
-  getArgsAndInitialize
+  _ <- getArgsAndInitialize
 
   -- Enable double buffering
   initialDisplayMode $= [RGBAMode, WithDepthBuffer, DoubleBuffered]
@@ -557,7 +558,6 @@ mainState state@State{..} = do
   _ <- createWindow "3D cloud viewer"
   sGlInitialized $= True
 
-  -- OpenGL
   clearColor  $= Color4 0 0 0 1
   shadeModel  $= Smooth
   depthMask   $= Enabled
@@ -590,7 +590,7 @@ mainState state@State{..} = do
   putStrLn "Exited OpenGL loop"
 
   -- Restart if requested
-  get sRestartRequested >>= \r -> when r $ do
+  on sRestartRequested $ do
     putStrLn "restarting"
     sRestartRequested $= False
     -- We can't just call `mainState state` here since that would (tail) call
