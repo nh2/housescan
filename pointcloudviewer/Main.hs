@@ -142,7 +142,7 @@ display state@State{..} = do
   z                 <- get sZoom
   ( tx, ty, tz )    <- get sPan
 
-  let buffers = [ ColorBuffer, DepthBuffer, StencilBuffer ]
+  let buffers = [ ColorBuffer, DepthBuffer ]
 
   matrixMode $= Projection
   loadIdentity
@@ -319,8 +319,6 @@ drawPolygons State{ sUnderCursor, transient = TransientState{ sPolygons, sPickin
   let drawPolys = do
         forM_ pols $ \(i, points, Color3 r g b) -> do
 
-          stencilFunc $= (Always, fromIntegral i, 0xff)
-
           renderPrimitive Polygon $ do
             color $ if
               | picking               -> idToColor i
@@ -368,8 +366,6 @@ initializeObjects _state = do
 displayQuad :: GLfloat -> GLfloat -> GLfloat -> IO ()
 displayQuad w h d = preservingMatrix $ do
   scale w h d
-
-  stencilFunc $= (Always, 1, 0xff) -- allow picking the quad as ID 1
 
   renderPrimitive Quads $ do
     color3 1.0 0.0 0.0
@@ -477,19 +473,9 @@ changeFps State{ sFps } f = do
   putStrLn . ("FPS: " ++) . show =<< get sFps
 
 
-printStencilValue :: State -> CInt -> CInt -> IO ()
-printStencilValue State{ sSize } x y = do
-  ( _width, height ) <- get sSize -- TODO query freshly
-  val <- alloca $ \(intPtr :: Ptr CInt) -> do
-    readPixels (Position x (height-y-1)) (Size 1 1) (PixelData StencilIndex UnsignedInt intPtr)
-    peek intPtr
-  putStrLn $ "stencil value at " ++ show (x,height-y-1) ++ ": " ++ show val
-
-
 -- |Button input
 input :: State -> Key -> KeyState -> Modifiers -> Position -> IO ()
-input state@State{..} (MouseButton LeftButton) Down _ (Position x y) = do
-  printStencilValue state x y
+input State{..} (MouseButton LeftButton) Down _ (Position x y) = do
   sPickObjectAt $= Just (c2i x, c2i y)
   sMouse $= ( x, y )
   sDragMode $= Just Translate
@@ -604,11 +590,6 @@ mainState state@State{..} = do
   blendFunc   $= (SrcAlpha, OneMinusSrcAlpha)
   lineWidth   $= 3.0
   pointSize   $= 1.0
-
-  -- Enable stencil buffer for picking
-  stencilTest  $= Enabled
-  clearStencil $= 0
-  stencilOp    $= (OpKeep, OpKeep, OpReplace)
 
   -- Callbacks
   displayCallback       $= display state
