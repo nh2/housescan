@@ -17,7 +17,6 @@ import           Data.List (minimumBy, maximumBy)
 import           Data.Ord (comparing)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Data.Trees.KdTree as KdTree
-import           Data.Trees.KdTree (KdTree(..))
 import           Data.Vect.Float hiding (Vector)
 import           Data.Vect.Float.Instances ()
 import           Data.Vector.Storable (Vector)
@@ -32,7 +31,6 @@ import           Graphics.GLUtil
 import           Graphics.UI.GLUT hiding (Plane)
 import           Linear (V3(..))
 import qualified PCD.Data as PCD
-import           Safe
 import           System.Endian (fromBE32)
 import           System.Random (randomRIO)
 import           System.SelfRestart (forkSelfRestartExePollWithAction)
@@ -729,6 +727,7 @@ instance KdTree.Point Vec3 where
     coord 0 (Vec3 a _ _) = realToFrac a
     coord 1 (Vec3 _ b _) = realToFrac b
     coord 2 (Vec3 _ _ c) = realToFrac c
+    coord _ _            = error "KdTree.coord: asked for bad dimension"
 
 
 vertexVec3 :: Vec3 -> IO ()
@@ -742,7 +741,7 @@ addCorrespondences State{ transient = TransientState { sClouds, sCorrespondenceL
     c1:c2:_ -> do
                  let l1 = V.toList $ cloudPoints c1
                      l2 = V.toList $ cloudPoints c2
-                     kd1 = KdTree.fromList l1
+                     _kd1 = KdTree.fromList l1
                      kd2 = KdTree.fromList l2
                      -- closest1 = take 100 [ (p1,p2) | p1 <- l1, let Just p2 = KdTree.nearestNeighbor kd2 p1 ]
                      -- closest1 = take 100 [ (p1,p2) | p1 <- l1, let Just p2 = KdTree.nearestNeighbor kd1 p1 ]
@@ -789,12 +788,12 @@ secondSmallestBy f (a:b:l) = Just $ go l (minimumBy f [a,b]) (maximumBy f [a,b])
 
 
 drawCorrespondenceLines :: State -> IO ()
-drawCorrespondenceLines state@State{ transient = TransientState{ sCorrespondenceLines } } = do
+drawCorrespondenceLines State{ transient = TransientState{ sCorrespondenceLines } } = do
 
   closest1 <- get sCorrespondenceLines
   lineWidth $= 1.0
   renderPrimitive Lines $ do
-    forM_ (zip [1..] closest1) $ \(i, (p1, mp2)) -> do
+    forM_ (zip [(1::Int)..] closest1) $ \(_i, (p1, mp2)) -> do
       -- case mp2 of Just p2 | i `mod` 10 == 0 -> do
       case mp2 of Just p2 -> do
                     color3 1.0 0.0 0.0
