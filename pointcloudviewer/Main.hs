@@ -13,10 +13,13 @@ import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Int (Int64)
-import           Data.List (minimumBy, maximumBy)
+import           Data.List (minimumBy, maximumBy, find)
 import           Data.Ord (comparing)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Data.Trees.KdTree as KdTree
+import qualified Data.Packed.Matrix as Matrix
+import           Data.Packed.Matrix ((><))
+import qualified Data.Packed.Vector as HmatrixVec
 import           Data.Vect.Float hiding (Vector)
 import           Data.Vect.Float.Instances ()
 import           Data.Vector.Storable (Vector)
@@ -30,6 +33,7 @@ import           Foreign.Store (newStore, lookupStore, readStore)
 import           Graphics.GLUtil
 import           Graphics.UI.GLUT hiding (Plane)
 import           Linear (V3(..))
+import           Numeric.LinearAlgebra.Algorithms (linearSolve)
 import qualified PCD.Data as PCD
 import           System.Endian (fromBE32)
 import           System.FilePath ((</>))
@@ -92,8 +96,17 @@ data TransientState
                    , sPickingMode :: IORef Bool
                    , sClouds :: IORef Clouds
                    , sCorrespondenceLines :: IORef [(Vec3, Maybe Vec3)]
-                   , sPolygons :: IORef [(ID, Vector Vec3, Color3 GLfloat)]
+                   , sPlanes :: IORef [Plane]
+                   , sSelectedPlanes :: IORef [Plane]
                    }
+
+
+data Plane = Plane
+  { planeID     :: ID
+  , planeBounds :: Vector Vec3
+  , planeColor  :: Color3 GLfloat
+  , planeEq     :: PlaneEq
+  } deriving (Eq, Ord, Show)
 
 
 type ID = Word32
@@ -268,7 +281,7 @@ drawObjects state@State{ transient = TransientState{ sPickingMode } } = do
 
   when (not picking) $ drawCorrespondenceLines state
 
-  drawPolygons state
+  drawPlanes state
 
 
 drawReferenceSystem :: IO ()
@@ -311,15 +324,15 @@ drawPointClouds state@State{ transient = TransientState{ sClouds } } = do
     clientState VertexArray $= Disabled
 
 
-drawPolygons :: State -> IO ()
-drawPolygons State{ sUnderCursor, transient = TransientState{ sPolygons, sPickingMode } } = do
+drawPlanes :: State -> IO ()
+drawPlanes State{ sUnderCursor, transient = TransientState{ sPlanes, sPickingMode } } = do
 
-  pols <- get sPolygons
+  pols <- get sPlanes
   picking <- get sPickingMode
   underCursor <- get sUnderCursor
 
   let drawPolys = do
-        forM_ pols $ \(i, points, Color3 r g b) -> do
+        forM_ pols $ \(Plane i points (Color3 r g b) _) -> do
 
           renderPrimitive Polygon $ do
             color $ if
@@ -499,6 +512,7 @@ input state (Char ']') Down _ _ = changeFps state succ
 input state (Char 'p') Down _ _ = addRandomPoints state
 input state (Char '\r') Down _ _ = addDevicePointCloud state
 input state (Char 'c') Down _ _ = addCorrespondences state
+input state (Char 'm') Down _ _ = addCornerPoint state
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
 
@@ -512,8 +526,18 @@ objectHover State{..} m'i = do
 -- | Called when picking notices a click on an object
 objectClick :: State -> Maybe ID -> IO ()
 objectClick _      Nothing  = putStrLn $ "Clicked: Background"
-objectClick _state (Just i) = do
+objectClick State{ transient = TransientState{..}, ..} (Just i) = do
   putStrLn $ "Clicked: " ++ show i
+
+  planes   <- get sPlanes
+  selected <- get sSelectedPlanes
+
+  case find (\Plane{ planeID } -> planeID == i) planes of
+    Nothing -> return ()
+    Just p  -> do
+                 putStrLn $ "Plane: " ++ show p
+                 when (p `notElem` selected) $ do -- could compare by ID only
+                   sSelectedPlanes $~ (p:)
 
 
 -- |Mouse wheel movement (sZoom)
@@ -558,7 +582,8 @@ createTransientState = do
   sPickingMode <- newIORef False
   sClouds <- newIORef (Clouds Map.empty)
   sCorrespondenceLines <- newIORef []
-  sPolygons <- newIORef []
+  sPlanes <- newIORef []
+  sSelectedPlanes <- newIORef []
   return TransientState{..}
 
 
@@ -810,32 +835,59 @@ loadPCDFile state file = do
   addPointCloud state (Cloud (Color3 1 0 0) points)
 
 
-data Plane = Plane Double Double Double Double -- parameters: a b c d
+data PlaneEq = PlaneEq Double Double Double Double -- parameters: a b c d
   deriving (Eq, Ord, Show)
 
 
-loadPlanes :: State -> FilePath -> IO ()
-loadPlanes _state file = do
+loadPlaneEqs :: FilePath -> IO [PlaneEq]
+loadPlaneEqs file = do
   let doubleS = double <* skipSpace
-      planesParser = (Plane <$> doubleS <*> doubleS <*> doubleS <*> double)
+      planesParser = (PlaneEq <$> doubleS <*> doubleS <*> doubleS <*> double)
                      `sepBy1'` endOfLine
-  planes <- parseOnly planesParser <$> BS.readFile file
-  print planes
+  parseOnly planesParser <$> BS.readFile file >>= \case
+    Left err -> error $ "Could not load planes: " ++ show err
+    Right planes -> do print planes
+                       return planes
 
 
-addBoundingHulls :: State -> IO ()
-addBoundingHulls state@State{ transient = TransientState{ sPolygons } } = do
-  forM_ [ "cloud_plane_hull0.pcd"
-        , "cloud_plane_hull1.pcd"
-        , "cloud_plane_hull2.pcd"
-        , "cloud_plane_hull3.pcd"
-        , "cloud_plane_hull4.pcd"
-        ] $ \name -> do
-    let file = "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls/" ++ name
+loadPlanes :: State -> FilePath -> IO ()
+loadPlanes state@State{ transient = TransientState{ sPlanes } } dir = do
+  eqs <- loadPlaneEqs (dir </> "planes.txt")
+
+  forM_ (zip [0..] eqs) $ \(x :: Int, eq) -> do
+    let name = "cloud_plane_hull" ++ show x ++ ".pcd"
+        file = dir </> name
     putStrLn $ "Loading " ++ file
 
     points <- loadPCDFileXyzFloat file
     col <- getRandomColor
     i <- genID state
 
-    sPolygons $~ ((i, points, col):)
+    sPlanes $~ (Plane i points col eq :)
+
+
+planeCorner :: PlaneEq -> PlaneEq -> PlaneEq -> Vec3
+planeCorner (PlaneEq a1 b1 c1 d1) (PlaneEq a2 b2 c2 d2) (PlaneEq a3 b3 c3 d3) = Vec3 (rtf x) (rtf y) (rtf z)
+  where
+    rtf = realToFrac
+    [x,y,z] = HmatrixVec.toList . Matrix.flatten $ linearSolve lhs rhs
+    lhs = (3><3)[ a1, b1, c1
+                , a2, b2, c2
+                , a3, b3, c3 ]
+    rhs = (3><1)[ -d1, -d2, -d3 ]
+
+
+red :: Color3 GLfloat
+red = Color3 1 0 0
+
+
+addCornerPoint :: State -> IO ()
+addCornerPoint state@State{ transient = TransientState{..}, ..} = do
+  get sSelectedPlanes >>= \case
+    p1:p2:p3:rest -> let corner = planeCorner (planeEq p1) (planeEq p2) (planeEq p3)
+                      in do
+                           putStrLn $ "Merged planes to corner " ++ show corner
+                           addPointCloud state $ Cloud red (V.fromList [corner])
+                           sSelectedPlanes $= rest
+
+    ps -> putStrLn $ "Only " ++ show (length ps) ++ " planes selected, need 3"
