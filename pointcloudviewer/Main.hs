@@ -49,13 +49,18 @@ import           HoniHelper (takeDepthSnapshot)
 instance Ord Vec3 where
 
 
+data CloudColor
+  = OneColor (Color3 GLfloat)
+  | ManyColors (Vector Vec3) -- must be same size as `cloudPoints`
+  deriving (Eq, Ord, Show)
+
 data Cloud = Cloud
-  { cloudColor :: Color3 GLfloat
+  { cloudColor :: CloudColor -- TODO maybe clean this interface up
   , cloudPoints :: Vector Vec3
   } deriving (Eq, Ord, Show)
 
 data Clouds = Clouds
-  { allocatedClouds :: Map BufferObject Cloud
+  { allocatedClouds :: Map (BufferObject, Maybe BufferObject) Cloud -- TODO clean this up (second ist for colours)
   } deriving (Eq, Ord, Show)
 
 data DragMode = Rotate | Translate
@@ -314,15 +319,27 @@ drawPointClouds state@State{ transient = TransientState{ sClouds } } = do
   Clouds{ allocatedClouds } <- get sClouds
 
   -- Render all clouds
-  forM_ (Map.toList allocatedClouds) $ \(bufObj, Cloud{ cloudColor = col, cloudPoints }) -> do
+  forM_ (Map.toList allocatedClouds) $ \((bufObj, m'colorObj), Cloud{ cloudColor = colType, cloudPoints }) -> do
 
-    color col
     clientState VertexArray $= Enabled
+
+    case (colType, m'colorObj) of
+      (OneColor col, Nothing) -> color col
+      (ManyColors _, Just colorObj) -> do
+        clientState ColorArray $= Enabled
+        bindBuffer ArrayBuffer $= Just colorObj
+        arrayPointer ColorArray $= VertexArrayDescriptor 3 Float 0 nullPtr
+      _ -> error $ "bad combination of CloudColor and buffer: " ++ show m'colorObj
+
     bindBuffer ArrayBuffer $= Just bufObj
     arrayPointer VertexArray $= VertexArrayDescriptor 3 Float 0 nullPtr
+
     drawArrays Points 0 (i2c $ V.length cloudPoints)
     bindBuffer ArrayBuffer $= Nothing
+
     clientState VertexArray $= Disabled
+    -- If we dont' disable this, a draw with only 1 color using `color` will segfault
+    clientState ColorArray $= Disabled
 
 
 drawPlanes :: State -> IO ()
@@ -358,14 +375,19 @@ processCloudQueue State{ transient = TransientState{ sClouds }, queuedClouds } =
   -- Get out queued clouds, set queued clouds to []
   queued <- atomicModifyIORef' queuedClouds (\cls -> ([], cls))
 
-  forM_ queued $ \cloud@Cloud{ cloudPoints } -> do
+  forM_ queued $ \cloud@Cloud{ cloudPoints, cloudColor } -> do
 
     -- Allocate buffer object containing all these points
     bufObj <- fromVector ArrayBuffer cloudPoints
 
+    -- Allocate color buffer if we don't use only 1 color
+    m'colorObj <- case cloudColor of
+      OneColor _             -> return Nothing
+      ManyColors pointColors -> Just <$> fromVector ArrayBuffer pointColors
+
     modifyIORef sClouds $
       \p@Clouds{ allocatedClouds = cloudMap } ->
-        p{ allocatedClouds = Map.insert bufObj cloud cloudMap }
+        p{ allocatedClouds = Map.insert (bufObj, m'colorObj) cloud cloudMap }
 
 
 addPointCloud :: State -> Cloud -> IO ()
@@ -705,7 +727,7 @@ addRandomPoints state = do
   z <- randomRIO (0, 10)
   let points = map mkVec3 [(x+1,y+2,z+3),(x+4,y+5,z+6)]
       colour = Color3 (realToFrac $ x/10) (realToFrac $ y/10) (realToFrac $ z/10)
-  addPointCloud state $ Cloud colour (V.fromList points)
+  addPointCloud state $ Cloud (OneColor colour) (V.fromList points)
 
 -- addPointCloud globalState Cloud{ cloudColor = Color3 0 0 1, cloudPoints = V.fromList [ Vec3 x y z | x <- [1..4], y <- [1..4], let z = 3 ] }
 
@@ -731,7 +753,7 @@ addDevicePointCloud state = do
                      )
                    $ depthVec
 
-      addPointCloud state $ Cloud (Color3 r g b) points
+      addPointCloud state $ Cloud (OneColor $ Color3 r g b) points
 
   where
     -- Scale the points from the camera so that they appear nicely in 3D space.
@@ -829,21 +851,26 @@ loadPCDFileXyzFloat file = V.map v3toVec3 <$> PCD.loadXyz file
   where
     v3toVec3 (V3 a b c) = Vec3 a b c
 
-loadPCDFileXyzNormalFloat :: FilePath -> IO (Vector Vec3)
-loadPCDFileXyzNormalFloat file = V.map (v3toVec3 . PCD.xyz) <$> PCD.loadXyzRgbNormal file
+loadPCDFileXyzNormalFloat :: FilePath -> IO (Vector Vec3, Vector Vec3)
+loadPCDFileXyzNormalFloat file = do
+  ps <- PCD.loadXyzRgbNormal file
+  return (V.map (v3toVec3 . PCD.xyz) ps, V.map (rgbToFloats . PCD.rgb) ps)
   where
+    rgbToFloats (V3 r g b) = Vec3 (fromIntegral r / 255.0) (fromIntegral g / 255.0) (fromIntegral b / 255.0)
     v3toVec3 (V3 a b c) = Vec3 a b c
 
 
 loadPCDFile :: State -> FilePath -> IO ()
 loadPCDFile state file = do
   -- TODO this switching is nasty, pcl-loader needs to be improved
-  points <- do
+  (points, col) <- do
     p1 <- loadPCDFileXyzFloat file
     if not (V.null p1)
-      then return p1
-      else loadPCDFileXyzNormalFloat file
-  addPointCloud state (Cloud (Color3 1 0 0) points)
+      then return (p1, OneColor $ Color3 1 0 0)
+      else do
+        (p2, colors) <- loadPCDFileXyzNormalFloat file
+        return (p2, ManyColors colors)
+  addPointCloud state (Cloud col points)
 
 
 
@@ -899,7 +926,7 @@ addCornerPoint state@State{ transient = TransientState{..}, ..} = do
     p1:p2:p3:rest -> let corner = planeCorner (planeEq p1) (planeEq p2) (planeEq p3)
                       in do
                            putStrLn $ "Merged planes to corner " ++ show corner
-                           addPointCloud state $ Cloud red (V.fromList [corner])
+                           addPointCloud state $ Cloud (OneColor red) (V.fromList [corner])
                            sSelectedPlanes $= rest
 
     ps -> putStrLn $ "Only " ++ show (length ps) ++ " planes selected, need 3"
