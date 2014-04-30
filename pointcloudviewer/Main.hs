@@ -35,6 +35,7 @@ import           Graphics.UI.GLUT hiding (Plane)
 import           Linear (V3(..))
 import           Numeric.LinearAlgebra.Algorithms (linearSolve)
 import qualified PCD.Data as PCD
+import qualified PCD.Point as PCD
 import           System.Endian (fromBE32)
 import           System.FilePath ((</>))
 import           System.Random (randomRIO)
@@ -828,11 +829,22 @@ loadPCDFileXyzFloat file = V.map v3toVec3 <$> PCD.loadXyz file
   where
     v3toVec3 (V3 a b c) = Vec3 a b c
 
+loadPCDFileXyzNormalFloat :: FilePath -> IO (Vector Vec3)
+loadPCDFileXyzNormalFloat file = V.map (v3toVec3 . PCD.xyz) <$> PCD.loadXyzRgbNormal file
+  where
+    v3toVec3 (V3 a b c) = Vec3 a b c
+
 
 loadPCDFile :: State -> FilePath -> IO ()
 loadPCDFile state file = do
-  points <- loadPCDFileXyzFloat file
+  -- TODO this switching is nasty, pcl-loader needs to be improved
+  points <- do
+    p1 <- loadPCDFileXyzFloat file
+    if not (V.null p1)
+      then return p1
+      else loadPCDFileXyzNormalFloat file
   addPointCloud state (Cloud (Color3 1 0 0) points)
+
 
 
 data PlaneEq = PlaneEq Double Double Double Double -- parameters: a b c d
