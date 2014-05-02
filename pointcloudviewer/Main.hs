@@ -536,6 +536,7 @@ input state (Char 'p') Down _ _ = addRandomPoints state
 input state (Char '\r') Down _ _ = addDevicePointCloud state
 input state (Char 'c') Down _ _ = addCorrespondences state
 input state (Char 'm') Down _ _ = addCornerPoint state
+input state (Char 'r') Down _ _ = rotateSelectedPlanes state
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
 
@@ -932,3 +933,54 @@ addCornerPoint state@State{ transient = TransientState{..}, ..} = do
                            sSelectedPlanes $= rest
 
     ps -> putStrLn $ "Only " ++ show (length ps) ++ " planes selected, need 3"
+
+
+rotationBetweenPlaneEqs :: PlaneEq -> PlaneEq -> Mat3
+rotationBetweenPlaneEqs (PlaneEq a1 b1 c1 _) (PlaneEq a2 b2 c2 _) = o
+  where
+    -- TODO Use http://lolengine.net/blog/2013/09/18/beautiful-maths-quaternion-from-vectors
+    o = rotMatrix3 axis theta
+    flt = realToFrac
+    n1 = Vec3 (flt a1) (flt b1) (flt c1)
+    n2 = Vec3 (flt a2) (flt b2) (flt c2)
+    axis = crossprod n1 n2
+    costheta = dotprod n1 n2 / (norm n1 * norm n2)
+    theta = acos costheta
+
+
+rotatePlaneEq :: PlaneEq -> Mat3 -> PlaneEq
+rotatePlaneEq (PlaneEq a b c d) rotMat = PlaneEq a' b' c' d'
+  where
+    -- See http://stackoverflow.com/questions/7685495
+    -- TODO normalize the output plane
+    n = Vec3 a b c
+    n' = n .* rotMat
+    Vec3 a' b' c' = n'
+    d' = d -- d is distance from plane to origin
+
+
+-- | Rotates a point around a rotation center.
+rotateAround :: Vec3 -> Mat3 -> Vec3 -> Vec3
+rotateAround center rotMat p = ((p &- center) .* rotMat) &+ center
+
+
+rotatePlane :: State -> Plane -> Mat3 -> IO Plane
+rotatePlane state Plane{ planeBounds, planeColor, planeEq } rotMat = do
+  i <- genID state
+  let n = V.length planeBounds
+      c = V.foldl' (&+) zero planeBounds &* (1 / fromIntegral n)  -- bound center
+      bounds = V.map (rotateAround c rotMat) planeBounds
+  return $ Plane i bounds planeColor (rotatePlaneEq planeEq rotMat)
+
+
+rotateSelectedPlanes :: State -> IO ()
+rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
+  get sSelectedPlanes >>= \case
+    p1:p2:rest -> let rot = rotationBetweenPlaneEqs (planeEq p1) (planeEq p2)
+                   in do
+                        p2' <- rotatePlane state p2 rot
+                        putStrLn $ "Rotating plane"
+                        sPlanes $~ (p2':)
+                        sSelectedPlanes $= rest
+
+    ps -> putStrLn $ "Only " ++ show (length ps) ++ " planes selected, need 2"
