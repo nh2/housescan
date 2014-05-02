@@ -27,7 +27,6 @@ executable pointcloudviewer
                      , foreign-store >= 0.0
                      , spool >= 0.1
                      , vect >= 0.4.7
-                     , KdTree >= 0.2.1
                      , safe >= 0.3.4
                      , attoparsec >= 0.10.4.0
                      , pcd-loader >= 0.3.0.1

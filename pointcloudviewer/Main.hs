@@ -13,10 +13,8 @@ import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Int (Int64)
-import           Data.List (minimumBy, maximumBy, find)
-import           Data.Ord (comparing)
+import           Data.List (find)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
-import qualified Data.Trees.KdTree as KdTree
 import qualified Data.Packed.Matrix as Matrix
 import           Data.Packed.Matrix ((><))
 import qualified Data.Packed.Vector as HmatrixVec
@@ -92,8 +90,7 @@ data State
           , sUnderCursor :: IORef (Maybe ID)
           , sDebugPickingDrawVisible :: IORef Bool
           , sDebugPickingTiming :: IORef Bool
-          -- Correspondences
-          , sKdDistance :: IORef Double
+          -- Transient state
           , transient :: TransientState
           }
 
@@ -101,7 +98,6 @@ data TransientState
   = TransientState { sNextID :: IORef ID
                    , sPickingMode :: IORef Bool
                    , sClouds :: IORef Clouds
-                   , sCorrespondenceLines :: IORef [(Vec3, Maybe Vec3)]
                    , sPlanes :: IORef [Plane]
                    , sSelectedPlanes :: IORef [Plane]
                    }
@@ -284,8 +280,6 @@ drawObjects state@State{ transient = TransientState{ sPickingMode } } = do
   when (not picking) $ drawReferenceSystem
 
   when (not picking) $ drawPointClouds state
-
-  when (not picking) $ drawCorrespondenceLines state
 
   drawPlanes state
 
@@ -534,7 +528,6 @@ input state (Char '[') Down _ _ = changeFps state pred
 input state (Char ']') Down _ _ = changeFps state succ
 input state (Char 'p') Down _ _ = addRandomPoints state
 input state (Char '\r') Down _ _ = addDevicePointCloud state
-input state (Char 'c') Down _ _ = addCorrespondences state
 input state (Char 'm') Down _ _ = addCornerPoint state
 input state (Char 'r') Down _ _ = rotateSelectedPlanes state
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
@@ -594,7 +587,6 @@ createState = do
   sUnderCursor      <- newIORef Nothing
   sDebugPickingDrawVisible <- newIORef False
   sDebugPickingTiming      <- newIORef False
-  sKdDistance       <- newIORef 0.5
   transient         <- createTransientState
 
   return State{..} -- RecordWildCards for initialisation convenience
@@ -605,7 +597,6 @@ createTransientState = do
   sNextID <- newIORef 1
   sPickingMode <- newIORef False
   sClouds <- newIORef (Clouds Map.empty)
-  sCorrespondenceLines <- newIORef []
   sPlanes <- newIORef []
   sSelectedPlanes <- newIORef []
   return TransientState{..}
@@ -765,86 +756,8 @@ addDevicePointCloud state = do
                                     (d / 20.0 - 30.0)
 
 
-
-instance KdTree.Point Vec3 where
-    dimension _ = 3
-
-    coord 0 (Vec3 a _ _) = realToFrac a
-    coord 1 (Vec3 _ b _) = realToFrac b
-    coord 2 (Vec3 _ _ c) = realToFrac c
-    coord _ _            = error "KdTree.coord: asked for bad dimension"
-
-
 vertexVec3 :: Vec3 -> IO ()
 vertexVec3 (Vec3 x y z) = vertex (Vertex3 (realToFrac x) (realToFrac y) (realToFrac z) :: Vertex3 GLfloat)
-
-
-addCorrespondences :: State -> IO ()
-addCorrespondences State{ transient = TransientState { sClouds, sCorrespondenceLines }, .. } = do
-  Clouds{ allocatedClouds } <- get sClouds
-  case Map.elems allocatedClouds of
-    c1:c2:_ -> do
-                 let l1 = V.toList $ cloudPoints c1
-                     l2 = V.toList $ cloudPoints c2
-                     _kd1 = KdTree.fromList l1
-                     kd2 = KdTree.fromList l2
-                     -- closest1 = take 100 [ (p1,p2) | p1 <- l1, let Just p2 = KdTree.nearestNeighbor kd2 p1 ]
-                     -- closest1 = take 100 [ (p1,p2) | p1 <- l1, let Just p2 = KdTree.nearestNeighbor kd1 p1 ]
-                     -- closest1 = take 100 [ (p1,p2) | p1 <- l1, let [_self, p2] = KdTree.kNearestNeighbors kd1 2 p1 ]
-                     -- closest1 = [ (p1, atMay (KdTree.nearNeighbors kd1 2 p1) 1) | p1 <- l1 ]
-                     -- Care: `nearNeighbors` returns closest last (`kNearestNeighbors` returns it first)
-
-                    -- closest1 = [ (p1, secondSmallestBy (comparing (KdTree.dist2 p1)) $ KdTree.nearNeighbors kd1 200 p1) | p1 <- l1 ]
-                    -- closest1 = [ (p1, secondSmallestBy (comparing (KdTree.dist2 p1)) $ KdTree.nearNeighbors kd1 0.5 p1) | p1 <- l1 ]
-
-                 d <- get sKdDistance
-                 let closest1 = [ (p1, secondSmallestBy (comparing (KdTree.dist2 p1)) $ KdTree.nearNeighbors kd2 d p1) | p1 <- l1 ]
-                 putStrLn "closest1"
-                 -- mapM_ print closest1
-                 -- putStrLn "closestAll"
-                 -- mapM_ print [ (p1, KdTree.kNearestNeighbors kd1 3 p1) | p1 <- l1 ]
-                 -- putStrLn "closest200"
-                 -- mapM_ print [ (p1, KdTree.nearNeighbors kd1 200 p1) | p1 <- l1 ]
-                 putStrLn $ "drawing " ++ show (length closest1) ++ " correspondence lines"
-                 sCorrespondenceLines $= closest1
-
-    _       -> hPutStrLn stderr $ "WARNING: not not enough clouds for correspondences"
-
-
-secondSmallest :: (Ord a) => [a] -> Maybe a
-secondSmallest []      = Nothing
-secondSmallest [_]     = Nothing
-secondSmallest (a:b:l) = Just $ go l (min a b) (max a b)
-  where
-    go []     _  s2             = s2
-    go (x:xs) s1 s2 | x < s1    = go xs x s1
-                    | x < s2    = go xs s1 x
-                    | otherwise = go xs s1 s2
-
-secondSmallestBy :: (a -> a -> Ordering) -> [a] -> Maybe a
-secondSmallestBy _ []      = Nothing
-secondSmallestBy _ [_]     = Nothing
-secondSmallestBy f (a:b:l) = Just $ go l (minimumBy f [a,b]) (maximumBy f [a,b])
-  where
-    go []     _  s2                = s2
-    go (x:xs) s1 s2 | f x s1 == LT = go xs x s1
-                    | f x s2 == LT = go xs s1 x
-                    | otherwise    = go xs s1 s2
-
-
-drawCorrespondenceLines :: State -> IO ()
-drawCorrespondenceLines State{ transient = TransientState{ sCorrespondenceLines } } = do
-
-  closest1 <- get sCorrespondenceLines
-  lineWidth $= 1.0
-  renderPrimitive Lines $ do
-    forM_ (zip [(1::Int)..] closest1) $ \(_i, (p1, mp2)) -> do
-      -- case mp2 of Just p2 | i `mod` 10 == 0 -> do
-      case mp2 of Just p2 -> do
-                    color3 1.0 0.0 0.0
-                    vertexVec3 p1
-                    vertexVec3 p2
-                  _ -> return ()
 
 
 loadPCDFileXyzFloat :: FilePath -> IO (Vector Vec3)
