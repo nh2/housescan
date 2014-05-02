@@ -774,17 +774,20 @@ loadPCDFileXyzNormalFloat file = do
     v3toVec3 (V3 a b c) = Vec3 a b c
 
 
+cloudFromFile :: FilePath -> IO Cloud
+cloudFromFile file = do
+  -- TODO this switching is nasty, pcl-loader needs to be improved
+  p1 <- loadPCDFileXyzFloat file
+  if not (V.null p1)
+    then return $ Cloud (OneColor $ Color3 1 0 0) p1
+    else do
+      (p2, colors) <- loadPCDFileXyzNormalFloat file
+      return $ Cloud (ManyColors colors) p2
+
+
 loadPCDFile :: State -> FilePath -> IO ()
 loadPCDFile state file = do
-  -- TODO this switching is nasty, pcl-loader needs to be improved
-  (points, col) <- do
-    p1 <- loadPCDFileXyzFloat file
-    if not (V.null p1)
-      then return (p1, OneColor $ Color3 1 0 0)
-      else do
-        (p2, colors) <- loadPCDFileXyzNormalFloat file
-        return (p2, ManyColors colors)
-  addPointCloud state (Cloud col points)
+  addPointCloud state =<< cloudFromFile file
 
 
 
@@ -792,8 +795,8 @@ data PlaneEq = PlaneEq Float Float Float Float -- parameters: a b c d
   deriving (Eq, Ord, Show)
 
 
-loadPlaneEqs :: FilePath -> IO [PlaneEq]
-loadPlaneEqs file = do
+planeEqsFromFile :: FilePath -> IO [PlaneEq]
+planeEqsFromFile file = do
   let float = realToFrac <$> double
       floatS = float <* skipSpace
       planesParser = (PlaneEq <$> floatS <*> floatS <*> floatS <*> float)
@@ -804,11 +807,10 @@ loadPlaneEqs file = do
                        return planes
 
 
-loadPlanes :: State -> FilePath -> IO ()
-loadPlanes state@State{ transient = TransientState{ sPlanes } } dir = do
-  eqs <- loadPlaneEqs (dir </> "planes.txt")
-
-  forM_ (zip [0..] eqs) $ \(x :: Int, eq) -> do
+planesFromDir :: State -> FilePath -> IO [Plane]
+planesFromDir state dir = do
+  eqs <- planeEqsFromFile (dir </> "planes.txt")
+  forM (zip [0..] eqs) $ \(x :: Int, eq) -> do
     let name = "cloud_plane_hull" ++ show x ++ ".pcd"
         file = dir </> name
     putStrLn $ "Loading " ++ file
@@ -817,7 +819,13 @@ loadPlanes state@State{ transient = TransientState{ sPlanes } } dir = do
     col <- getRandomColor
     i <- genID state
 
-    sPlanes $~ (Plane i points col eq :)
+    return $ Plane i points col eq
+
+
+loadPlanes :: State -> FilePath -> IO ()
+loadPlanes state@State{ transient = TransientState{ sPlanes } } dir = do
+  planes <- planesFromDir state dir
+  sPlanes $~ (planes ++)
 
 
 planeCorner :: PlaneEq -> PlaneEq -> PlaneEq -> Vec3
