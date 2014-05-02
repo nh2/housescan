@@ -874,14 +874,15 @@ loadPCDFile state file = do
 
 
 
-data PlaneEq = PlaneEq Double Double Double Double -- parameters: a b c d
+data PlaneEq = PlaneEq Float Float Float Float -- parameters: a b c d
   deriving (Eq, Ord, Show)
 
 
 loadPlaneEqs :: FilePath -> IO [PlaneEq]
 loadPlaneEqs file = do
-  let doubleS = double <* skipSpace
-      planesParser = (PlaneEq <$> doubleS <*> doubleS <*> doubleS <*> double)
+  let float = realToFrac <$> double
+      floatS = float <* skipSpace
+      planesParser = (PlaneEq <$> floatS <*> floatS <*> floatS <*> float)
                      `sepBy1'` endOfLine
   parseOnly planesParser <$> BS.readFile file >>= \case
     Left err -> error $ "Could not load planes: " ++ show err
@@ -906,14 +907,15 @@ loadPlanes state@State{ transient = TransientState{ sPlanes } } dir = do
 
 
 planeCorner :: PlaneEq -> PlaneEq -> PlaneEq -> Vec3
-planeCorner (PlaneEq a1 b1 c1 d1) (PlaneEq a2 b2 c2 d2) (PlaneEq a3 b3 c3 d3) = Vec3 (rtf x) (rtf y) (rtf z)
+planeCorner (PlaneEq a1 b1 c1 d1) (PlaneEq a2 b2 c2 d2) (PlaneEq a3 b3 c3 d3) = Vec3 (f x) (f y) (f z)
   where
-    rtf = realToFrac
+    f = realToFrac :: Double -> Float
+    d = realToFrac :: Float -> Double
     [x,y,z] = HmatrixVec.toList . Matrix.flatten $ linearSolve lhs rhs
-    lhs = (3><3)[ a1, b1, c1
-                , a2, b2, c2
-                , a3, b3, c3 ]
-    rhs = (3><1)[ -d1, -d2, -d3 ]
+    lhs = (3><3)[ d a1, d b1, d c1
+                , d a2, d b2, d c2
+                , d a3, d b3, d c3 ]
+    rhs = (3><1)[ -(d d1), -(d d2), -(d d3) ]
 
 
 red :: Color3 GLfloat
