@@ -100,6 +100,7 @@ data TransientState
                    , sClouds :: IORef Clouds
                    , sPlanes :: IORef [Plane]
                    , sSelectedPlanes :: IORef [Plane]
+                   , sRooms :: IORef [Room]
                    }
 
 
@@ -108,6 +109,13 @@ data Plane = Plane
   , planeBounds :: Vector Vec3
   , planeColor  :: Color3 GLfloat
   , planeEq     :: PlaneEq
+  } deriving (Eq, Ord, Show)
+
+
+data Room = Room
+  { roomID      :: ID
+  , roomPlanes  :: [Plane]
+  , roomCloud   :: Cloud
   } deriving (Eq, Ord, Show)
 
 
@@ -337,9 +345,12 @@ drawPointClouds state@State{ transient = TransientState{ sClouds } } = do
 
 
 drawPlanes :: State -> IO ()
-drawPlanes State{ sUnderCursor, transient = TransientState{ sPlanes, sPickingMode } } = do
+drawPlanes State{ sUnderCursor, transient = TransientState{ sPlanes, sRooms, sPickingMode } } = do
 
-  pols <- get sPlanes
+  planePols <- get sPlanes
+  roomPols <- concatMap roomPlanes <$> get sRooms
+  let pols = planePols ++ roomPols
+
   picking <- get sPickingMode
   underCursor <- get sUnderCursor
 
@@ -546,10 +557,14 @@ objectClick _      Nothing  = putStrLn $ "Clicked: Background"
 objectClick State{ transient = TransientState{..}, ..} (Just i) = do
   putStrLn $ "Clicked: " ++ show i
 
-  planes   <- get sPlanes
-  selected <- get sSelectedPlanes
+  allPlanes <- do
+    planes     <- get sPlanes
+    roomPlanes <- concatMap roomPlanes <$> get sRooms
+    return (planes ++ roomPlanes)
 
-  case find (\Plane{ planeID } -> planeID == i) planes of
+  selected   <- get sSelectedPlanes
+
+  case find (\Plane{ planeID } -> planeID == i) allPlanes of
     Nothing -> return ()
     Just p  -> do
                  putStrLn $ "Plane: " ++ show p
@@ -599,6 +614,7 @@ createTransientState = do
   sClouds <- newIORef (Clouds Map.empty)
   sPlanes <- newIORef []
   sSelectedPlanes <- newIORef []
+  sRooms <- newIORef []
   return TransientState{..}
 
 
@@ -905,3 +921,12 @@ rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
                         sSelectedPlanes $= rest
 
     ps -> putStrLn $ "Only " ++ show (length ps) ++ " planes selected, need 2"
+
+
+loadRoom :: State -> FilePath -> IO ()
+loadRoom state@State{ transient = TransientState{ sRooms } } dir = do
+  planes <- planesFromDir state dir
+  cloud <- cloudFromFile (dir </> "cloud_downsampled.pcd")
+  addPointCloud state cloud
+  i <- genID state
+  sRooms $~ (Room i planes cloud :)
