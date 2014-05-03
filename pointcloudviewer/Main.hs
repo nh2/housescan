@@ -9,6 +9,7 @@ import           Control.Monad
 import           Data.Attoparsec.ByteString.Char8 (parseOnly, sepBy1', double, endOfLine, skipSpace)
 import           Data.Bits (unsafeShiftR)
 import qualified Data.ByteString as BS
+import           Data.Foldable (for_)
 import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -53,12 +54,9 @@ data CloudColor
   deriving (Eq, Ord, Show)
 
 data Cloud = Cloud
-  { cloudColor :: CloudColor -- TODO maybe clean this interface up
+  { cloudID :: ID
+  , cloudColor :: CloudColor -- TODO maybe clean this interface up
   , cloudPoints :: Vector Vec3
-  } deriving (Eq, Ord, Show)
-
-data Clouds = Clouds
-  { allocatedClouds :: Map (BufferObject, Maybe BufferObject) Cloud -- TODO clean this up (second ist for colours)
   } deriving (Eq, Ord, Show)
 
 data DragMode = Rotate | Translate
@@ -75,7 +73,7 @@ data State
           , sRotY :: IORef GLfloat
           , sZoom :: IORef GLfloat
           , sPan :: IORef ( GLfloat, GLfloat, GLfloat )
-          , queuedClouds :: IORef [Cloud]
+          , queuedClouds :: IORef (Map ID Cloud)
           , sFps :: IORef Int
           -- | Both `display` and `idle` set this to the current time
           -- after running
@@ -97,10 +95,10 @@ data State
 data TransientState
   = TransientState { sNextID :: IORef ID
                    , sPickingMode :: IORef Bool
-                   , sClouds :: IORef Clouds
-                   , sPlanes :: IORef [Plane]
+                   , sAllocatedClouds :: IORef (Map ID (Cloud, BufferObject, Maybe BufferObject)) -- second is for colours
+                   , sPlanes :: IORef (Map ID Plane)
                    , sSelectedPlanes :: IORef [Plane]
-                   , sRooms :: IORef [Room]
+                   , sRooms :: IORef (Map ID Room)
                    }
 
 
@@ -313,15 +311,15 @@ drawReferenceSystem = do
 
 
 drawPointClouds :: State -> IO ()
-drawPointClouds state@State{ transient = TransientState{ sClouds } } = do
+drawPointClouds state@State{ transient = TransientState{ sAllocatedClouds } } = do
 
   -- Allocate BufferObjects for all queued clouds
   processCloudQueue state
 
-  Clouds{ allocatedClouds } <- get sClouds
+  allocatedClouds <- get sAllocatedClouds
 
   -- Render all clouds
-  forM_ (Map.toList allocatedClouds) $ \((bufObj, m'colorObj), Cloud{ cloudColor = colType, cloudPoints }) -> do
+  forM_ (Map.elems allocatedClouds) $ \(Cloud{ cloudColor = colType, cloudPoints }, bufObj, m'colorObj) -> do
 
     clientState VertexArray $= Enabled
 
@@ -347,8 +345,8 @@ drawPointClouds state@State{ transient = TransientState{ sClouds } } = do
 drawPlanes :: State -> IO ()
 drawPlanes State{ sUnderCursor, transient = TransientState{ sPlanes, sRooms, sPickingMode } } = do
 
-  planePols <- get sPlanes
-  roomPols <- concatMap roomPlanes <$> get sRooms
+  planePols <- Map.elems <$> get sPlanes
+  roomPols <- concatMap roomPlanes . Map.elems <$> get sRooms
   let pols = planePols ++ roomPols
 
   picking <- get sPickingMode
@@ -375,12 +373,20 @@ drawPlanes State{ sUnderCursor, transient = TransientState{ sPlanes, sRooms, sPi
 
 
 processCloudQueue :: State -> IO ()
-processCloudQueue State{ transient = TransientState{ sClouds }, queuedClouds } = do
+processCloudQueue State{ transient = TransientState{ sAllocatedClouds }, queuedClouds } = do
 
   -- Get out queued clouds, set queued clouds to []
-  queued <- atomicModifyIORef' queuedClouds (\cls -> ([], cls))
+  queued <- atomicModifyIORef' queuedClouds (\cls -> (Map.empty, Map.elems cls))
 
-  forM_ queued $ \cloud@Cloud{ cloudPoints, cloudColor } -> do
+  -- Go over the queue contents
+  forM_ queued $ \cloud@Cloud{ cloudID = i, cloudPoints, cloudColor } -> do
+
+    -- If the ID is already allocated, deallocate the corresponding buffers
+    allocatedClouds <- get sAllocatedClouds
+    for_ (Map.lookup i allocatedClouds) $ \(_, bufObj, m'colorObj) -> do
+      deleteObjectName bufObj
+      for_ m'colorObj deleteObjectName
+      sAllocatedClouds $~ Map.delete i
 
     -- Allocate buffer object containing all these points
     bufObj <- fromVector ArrayBuffer cloudPoints
@@ -390,14 +396,21 @@ processCloudQueue State{ transient = TransientState{ sClouds }, queuedClouds } =
       OneColor _             -> return Nothing
       ManyColors pointColors -> Just <$> fromVector ArrayBuffer pointColors
 
-    modifyIORef sClouds $
-      \p@Clouds{ allocatedClouds = cloudMap } ->
-        p{ allocatedClouds = Map.insert (bufObj, m'colorObj) cloud cloudMap }
+    sAllocatedClouds $~ Map.insert i (cloud, bufObj, m'colorObj)
+
+
+atomicModifyIORef_ :: IORef a -> (a -> a) -> IO ()
+atomicModifyIORef_ ref f = atomicModifyIORef' ref (\x -> (f x, ()))
 
 
 addPointCloud :: State -> Cloud -> IO ()
-addPointCloud State{ queuedClouds } cloud = do
-  atomicModifyIORef' queuedClouds (\cls -> (cloud:cls, ()))
+addPointCloud State{ transient = TransientState{..}, ..} cloud@Cloud{ cloudID = i } = do
+  atomicModifyIORef_ queuedClouds (Map.insert i cloud)
+
+
+updatePointCloud :: State -> Cloud -> IO ()
+updatePointCloud State{ queuedClouds } cloud@Cloud{ cloudID = i } = do
+  atomicModifyIORef_ queuedClouds (Map.insert i cloud)
 
 
 initializeObjects :: State -> IO ()
@@ -558,8 +571,8 @@ objectClick State{ transient = TransientState{..}, ..} (Just i) = do
   putStrLn $ "Clicked: " ++ show i
 
   allPlanes <- do
-    planes     <- get sPlanes
-    roomPlanes <- concatMap roomPlanes <$> get sRooms
+    planes     <- Map.elems <$> get sPlanes
+    roomPlanes <- concatMap roomPlanes . Map.elems <$> get sRooms
     return (planes ++ roomPlanes)
 
   selected   <- get sSelectedPlanes
@@ -591,7 +604,7 @@ createState = do
   sRotY             <- newIORef 0.0
   sZoom             <- newIORef 5.0
   sPan              <- newIORef ( 0, 0, 0 )
-  queuedClouds      <- newIORef []
+  queuedClouds      <- newIORef Map.empty
   sFps              <- newIORef 30
   sLastLoopTime     <- newIORef Nothing
   sRestartRequested <- newIORef False
@@ -611,10 +624,10 @@ createTransientState :: IO TransientState
 createTransientState = do
   sNextID <- newIORef 1
   sPickingMode <- newIORef False
-  sClouds <- newIORef (Clouds Map.empty)
-  sPlanes <- newIORef []
+  sAllocatedClouds <- newIORef Map.empty
+  sPlanes <- newIORef Map.empty
   sSelectedPlanes <- newIORef []
-  sRooms <- newIORef []
+  sRooms <- newIORef Map.empty
   return TransientState{..}
 
 
@@ -733,9 +746,10 @@ addRandomPoints state = do
   x <- randomRIO (0, 10)
   y <- randomRIO (0, 10)
   z <- randomRIO (0, 10)
+  i <- genID state
   let points = map mkVec3 [(x+1,y+2,z+3),(x+4,y+5,z+6)]
       colour = Color3 (realToFrac $ x/10) (realToFrac $ y/10) (realToFrac $ z/10)
-  addPointCloud state $ Cloud (OneColor colour) (V.fromList points)
+  addPointCloud state $ Cloud i (OneColor colour) (V.fromList points)
 
 -- addPointCloud globalState Cloud{ cloudColor = Color3 0 0 1, cloudPoints = V.fromList [ Vec3 x y z | x <- [1..4], y <- [1..4], let z = 3 ] }
 
@@ -761,7 +775,8 @@ addDevicePointCloud state = do
                      )
                    $ depthVec
 
-      addPointCloud state $ Cloud (OneColor $ Color3 r g b) points
+      i <- genID state
+      addPointCloud state $ Cloud i (OneColor $ Color3 r g b) points
 
   where
     -- Scale the points from the camera so that they appear nicely in 3D space.
@@ -790,20 +805,21 @@ loadPCDFileXyzNormalFloat file = do
     v3toVec3 (V3 a b c) = Vec3 a b c
 
 
-cloudFromFile :: FilePath -> IO Cloud
-cloudFromFile file = do
+cloudFromFile :: State -> FilePath -> IO Cloud
+cloudFromFile state file = do
   -- TODO this switching is nasty, pcl-loader needs to be improved
+  i <- genID state
   p1 <- loadPCDFileXyzFloat file
   if not (V.null p1)
-    then return $ Cloud (OneColor $ Color3 1 0 0) p1
+    then return $ Cloud i (OneColor $ Color3 1 0 0) p1
     else do
       (p2, colors) <- loadPCDFileXyzNormalFloat file
-      return $ Cloud (ManyColors colors) p2
+      return $ Cloud i (ManyColors colors) p2
 
 
 loadPCDFile :: State -> FilePath -> IO ()
 loadPCDFile state file = do
-  addPointCloud state =<< cloudFromFile file
+  addPointCloud state =<< cloudFromFile state file
 
 
 
@@ -841,7 +857,7 @@ planesFromDir state dir = do
 loadPlanes :: State -> FilePath -> IO ()
 loadPlanes state@State{ transient = TransientState{ sPlanes } } dir = do
   planes <- planesFromDir state dir
-  sPlanes $~ (planes ++)
+  sPlanes $~ (Map.fromList [ (planeID p, p) | p <- planes ] `Map.union`)
 
 
 planeCorner :: PlaneEq -> PlaneEq -> PlaneEq -> Vec3
@@ -866,7 +882,8 @@ addCornerPoint state@State{ transient = TransientState{..}, ..} = do
     p1:p2:p3:rest -> let corner = planeCorner (planeEq p1) (planeEq p2) (planeEq p3)
                       in do
                            putStrLn $ "Merged planes to corner " ++ show corner
-                           addPointCloud state $ Cloud (OneColor red) (V.fromList [corner])
+                           i <- genID state
+                           addPointCloud state $ Cloud i (OneColor red) (V.fromList [corner])
                            sSelectedPlanes $= rest
 
     ps -> putStrLn $ "Only " ++ show (length ps) ++ " planes selected, need 3"
@@ -903,35 +920,58 @@ rotatePlaneEq (PlaneEq a b c d) rotMat = PlaneEq a' b' c' d'
 
 -- | Rotates a point around a rotation center.
 rotateAround :: Vec3 -> Mat3 -> Vec3 -> Vec3
-rotateAround center rotMat p = ((p &- center) .* rotMat) &+ center
+rotateAround rotCenter rotMat p = ((p &- rotCenter) .* rotMat) &+ rotCenter
 
 
-rotatePlane :: State -> Plane -> Mat3 -> IO Plane
-rotatePlane state Plane{ planeBounds, planeColor, planeEq } rotMat = do
-  i <- genID state
-  let n = V.length planeBounds
-      c = V.foldl' (&+) zero planeBounds &* (1 / fromIntegral n)  -- bound center
-      bounds = V.map (rotateAround c rotMat) planeBounds
-  return $ Plane i bounds planeColor (rotatePlaneEq planeEq rotMat)
+rotatePlaneAround :: Vec3 -> Mat3 -> Plane -> Plane
+rotatePlaneAround rotCenter rotMat p@Plane{ planeBounds = oldBounds, planeEq = oldEq }
+  = p{ planeBounds = V.map (rotateAround rotCenter rotMat) oldBounds
+     , planeEq     = rotatePlaneEq oldEq rotMat }
+
+
+rotatePlane :: Mat3 -> Plane -> Plane
+rotatePlane rotMat p = rotatePlaneAround (planeMean p) rotMat p
+
+
+pointMean :: Vector Vec3 -> Vec3
+pointMean points = c
+  where
+    n = V.length points
+    c = V.foldl' (&+) zero points &* (1 / fromIntegral n)  -- bound center
+
+
+cloudMean :: Cloud -> Vec3
+cloudMean Cloud{ cloudPoints } = pointMean cloudPoints
+
+
+planeMean :: Plane -> Vec3
+planeMean Plane{ planeBounds } = pointMean planeBounds
 
 
 rotateSelectedPlanes :: State -> IO ()
-rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
+rotateSelectedPlanes State{ transient = TransientState{..}, ..} = do
   get sSelectedPlanes >>= \case
-    p1:p2:rest -> let rot = rotationBetweenPlaneEqs (planeEq p1) (planeEq p2)
-                   in do
-                        p2' <- rotatePlane state p2 rot
-                        putStrLn $ "Rotating plane"
-                        sPlanes $~ (p2':)
-                        sSelectedPlanes $= rest
+    p1:p2:rest -> do
+      -- We want to rotate p1.
+      let pid1 = planeID p1
+          rot = rotationBetweenPlaneEqs (planeEq p1) (planeEq p2)
+      let p1' = rotatePlane rot p1
+      putStrLn $ "Rotating plane"
+      sPlanes $~ (Map.insert pid1 p1') -- changes p2
+      sSelectedPlanes $= rest
 
     ps -> putStrLn $ "Only " ++ show (length ps) ++ " planes selected, need 2"
+
+
+rotateCloudAround :: Vec3 -> Mat3 -> Cloud -> Cloud
+rotateCloudAround rotCenter rotMat c@Cloud{ cloudPoints = oldPoints }
+  = c { cloudPoints = V.map (rotateAround rotCenter rotMat) oldPoints }
 
 
 loadRoom :: State -> FilePath -> IO ()
 loadRoom state@State{ transient = TransientState{ sRooms } } dir = do
   planes <- planesFromDir state dir
-  cloud <- cloudFromFile (dir </> "cloud_downsampled.pcd")
+  cloud <- cloudFromFile state (dir </> "cloud_downsampled.pcd")
   addPointCloud state cloud
   i <- genID state
-  sRooms $~ (Room i planes cloud :)
+  sRooms $~ Map.insert i (Room i planes cloud)
