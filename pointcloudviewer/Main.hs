@@ -949,16 +949,27 @@ planeMean Plane{ planeBounds } = pointMean planeBounds
 
 
 rotateSelectedPlanes :: State -> IO ()
-rotateSelectedPlanes State{ transient = TransientState{..}, ..} = do
+rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
   get sSelectedPlanes >>= \case
     p1:p2:rest -> do
       -- We want to rotate p1.
       let pid1 = planeID p1
           rot = rotationBetweenPlaneEqs (planeEq p1) (planeEq p2)
-      let p1' = rotatePlane rot p1
-      putStrLn $ "Rotating plane"
-      sPlanes $~ (Map.insert pid1 p1') -- changes p2
-      sSelectedPlanes $= rest
+      -- First check if p1 is part of a room.
+      rooms <- Map.elems <$> get sRooms
+      case find (\r -> any ((pid1 == ) . planeID) (roomPlanes r)) rooms of
+        Just oldRoom@Room{ roomID = i } -> do
+          let room = rotateRoom rot oldRoom
+              cloud = roomCloud room
+          putStrLn $ "Rotating room"
+          sRooms $~ Map.insert i room
+          updatePointCloud state cloud
+
+        Nothing -> do
+          let p1' = rotatePlane rot p1
+          putStrLn $ "Rotating plane"
+          sPlanes $~ (Map.insert pid1 p1') -- changes p2
+          sSelectedPlanes $= rest
 
     ps -> putStrLn $ "Only " ++ show (length ps) ++ " planes selected, need 2"
 
@@ -966,6 +977,19 @@ rotateSelectedPlanes State{ transient = TransientState{..}, ..} = do
 rotateCloudAround :: Vec3 -> Mat3 -> Cloud -> Cloud
 rotateCloudAround rotCenter rotMat c@Cloud{ cloudPoints = oldPoints }
   = c { cloudPoints = V.map (rotateAround rotCenter rotMat) oldPoints }
+
+
+roomMean :: Room -> Vec3
+roomMean Room{ roomCloud } = cloudMean roomCloud
+
+
+rotateRoomAround :: Vec3 -> Mat3 -> Room -> Room
+rotateRoomAround rotCenter rotMat r@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud }
+  = r{ roomPlanes = map (rotatePlaneAround rotCenter rotMat) oldPlanes
+     , roomCloud = rotateCloudAround rotCenter rotMat oldCloud }
+
+rotateRoom :: Mat3 -> Room -> Room
+rotateRoom rotMat r = rotateRoomAround (roomMean r) rotMat r
 
 
 loadRoom :: State -> FilePath -> IO ()
