@@ -872,6 +872,11 @@ addCornerPoint state@State{ transient = TransientState{..}, ..} = do
     ps -> putStrLn $ "Only " ++ show (length ps) ++ " planes selected, need 3"
 
 
+-- | Calculates the rotation matrix that will rotate plane1 into the same
+-- direction as plane 2.
+--
+-- Note that if you actually want to rotate plane 2 onto plane 1, you have
+-- to take the inverse or pass them the other way around!
 rotationBetweenPlaneEqs :: PlaneEq -> PlaneEq -> Mat3
 rotationBetweenPlaneEqs (PlaneEq a1 b1 c1 _) (PlaneEq a2 b2 c2 _) = o
   where
@@ -889,7 +894,7 @@ rotatePlaneEq :: PlaneEq -> Mat3 -> PlaneEq
 rotatePlaneEq (PlaneEq a b c d) rotMat = PlaneEq a' b' c' d'
   where
     -- See http://stackoverflow.com/questions/7685495
-    -- TODO normalize the output plane
+    -- TODO normalize the output plane if I like
     n = Vec3 a b c
     n' = n .* rotMat
     Vec3 a' b' c' = n'
