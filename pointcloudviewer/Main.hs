@@ -907,8 +907,8 @@ rotationBetweenPlaneEqs (PlaneEq a1 b1 c1 _) (PlaneEq a2 b2 c2 _) = o
     theta = acos costheta
 
 
-rotatePlaneEq :: PlaneEq -> Mat3 -> PlaneEq
-rotatePlaneEq (PlaneEq a b c d) rotMat = PlaneEq a' b' c' d'
+rotatePlaneEq :: Mat3 -> PlaneEq -> PlaneEq
+rotatePlaneEq rotMat (PlaneEq a b c d) = PlaneEq a' b' c' d'
   where
     -- See http://stackoverflow.com/questions/7685495
     -- TODO normalize the output plane if I like
@@ -926,7 +926,7 @@ rotateAround rotCenter rotMat p = ((p &- rotCenter) .* rotMat) &+ rotCenter
 rotatePlaneAround :: Vec3 -> Mat3 -> Plane -> Plane
 rotatePlaneAround rotCenter rotMat p@Plane{ planeBounds = oldBounds, planeEq = oldEq }
   = p{ planeBounds = V.map (rotateAround rotCenter rotMat) oldBounds
-     , planeEq     = rotatePlaneEq oldEq rotMat }
+     , planeEq     = rotatePlaneEq rotMat oldEq }
 
 
 rotatePlane :: Mat3 -> Plane -> Plane
