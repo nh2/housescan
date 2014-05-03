@@ -405,6 +405,12 @@ atomicModifyIORef_ ref f = atomicModifyIORef' ref (\x -> (f x, ()))
 
 addPointCloud :: State -> Cloud -> IO ()
 addPointCloud State{ transient = TransientState{..}, ..} cloud@Cloud{ cloudID = i } = do
+  -- Make sure a cloud with that id doesn't already exist
+  queued <- get queuedClouds
+  allocated <- get sAllocatedClouds
+  when (i `Map.member` queued || i `Map.member` allocated) $
+    error $ "Cloud with id " ++ show i ++ " already exists"
+
   atomicModifyIORef_ queuedClouds (Map.insert i cloud)
 
 
