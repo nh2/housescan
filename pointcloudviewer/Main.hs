@@ -570,19 +570,17 @@ objectClick _      Nothing  = putStrLn $ "Clicked: Background"
 objectClick State{ transient = TransientState{..}, ..} (Just i) = do
   putStrLn $ "Clicked: " ++ show i
 
+  rooms <- Map.elems <$> get sRooms
   allPlanes <- do
-    planes     <- Map.elems <$> get sPlanes
-    roomPlanes <- concatMap roomPlanes . Map.elems <$> get sRooms
-    return (planes ++ roomPlanes)
+    planes <- Map.elems <$> get sPlanes
+    return (planes ++ concatMap roomPlanes rooms)
 
-  selected   <- get sSelectedPlanes
+  selected <- get sSelectedPlanes
 
-  case find (\Plane{ planeID } -> planeID == i) allPlanes of
-    Nothing -> return ()
-    Just p  -> do
-                 putStrLn $ "Plane: " ++ show p
-                 when (p `notElem` selected) $ do -- could compare by ID only
-                   sSelectedPlanes $~ (p:)
+  for_ (find (\Plane{ planeID } -> planeID == i) allPlanes) $ \p -> do
+    putStrLn $ "Plane: " ++ show p
+    when (p `notElem` selected) $ do -- could compare by ID only
+      sSelectedPlanes $~ (p:)
 
 
 -- |Mouse wheel movement (sZoom)
@@ -948,6 +946,10 @@ planeMean :: Plane -> Vec3
 planeMean Plane{ planeBounds } = pointMean planeBounds
 
 
+findRoomContainingPlane :: [Room] -> ID -> Maybe Room
+findRoomContainingPlane rooms i = find (\r -> any ((i == ) . planeID) (roomPlanes r)) rooms
+
+
 rotateSelectedPlanes :: State -> IO ()
 rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
   get sSelectedPlanes >>= \case
@@ -957,7 +959,7 @@ rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
           rot = rotationBetweenPlaneEqs (planeEq p1) (planeEq p2)
       -- First check if p1 is part of a room.
       rooms <- Map.elems <$> get sRooms
-      case find (\r -> any ((pid1 == ) . planeID) (roomPlanes r)) rooms of
+      case findRoomContainingPlane rooms pid1 of
         Just oldRoom@Room{ roomID = i } -> do
           let room = rotateRoom rot oldRoom
               cloud = roomCloud room
