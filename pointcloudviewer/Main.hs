@@ -577,6 +577,9 @@ objectClick State{ transient = TransientState{..}, ..} (Just i) = do
 
   selected <- get sSelectedPlanes
 
+  for_ (findRoomContainingPlane rooms i) $ \r -> do
+    putStrLn $ "Room: " ++ show (roomID r)
+
   for_ (find (\Plane{ planeID } -> planeID == i) allPlanes) $ \p -> do
     putStrLn $ "Plane: " ++ show (planeID p)
     when (p `notElem` selected) $ do -- could compare by ID only
