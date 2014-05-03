@@ -49,13 +49,13 @@ instance Ord Vec3 where
 
 
 data CloudColor
-  = OneColor (Color3 GLfloat)
+  = OneColor !(Color3 GLfloat)
   | ManyColors (Vector Vec3) -- must be same size as `cloudPoints`
   deriving (Eq, Ord, Show)
 
 data Cloud = Cloud
-  { cloudID :: ID
-  , cloudColor :: CloudColor -- TODO maybe clean this interface up
+  { cloudID :: !ID
+  , cloudColor :: !CloudColor -- TODO maybe clean this interface up
   , cloudPoints :: Vector Vec3
   } deriving (Eq, Ord, Show)
 
@@ -103,16 +103,16 @@ data TransientState
 
 
 data Plane = Plane
-  { planeID     :: ID
+  { planeID     :: !ID
   , planeBounds :: Vector Vec3
-  , planeColor  :: Color3 GLfloat
-  , planeEq     :: PlaneEq
+  , planeColor  :: !(Color3 GLfloat)
+  , planeEq     :: !PlaneEq
   } deriving (Eq, Ord, Show)
 
 
 data Room = Room
-  { roomID      :: ID
-  , roomPlanes  :: [Plane]
+  { roomID      :: !ID
+  , roomPlanes  :: ![Plane]
   , roomCloud   :: Cloud
   } deriving (Eq, Ord, Show)
 
@@ -823,7 +823,7 @@ loadPCDFile state file = do
 
 
 
-data PlaneEq = PlaneEq Float Float Float Float -- parameters: a b c d
+data PlaneEq = PlaneEq !Float !Float !Float !Float -- parameters: a b c d
   deriving (Eq, Ord, Show)
 
 
