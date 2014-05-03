@@ -992,6 +992,34 @@ rotateRoom :: Mat3 -> Room -> Room
 rotateRoom rotMat r = rotateRoomAround (roomMean r) rotMat r
 
 
+translatePlaneEq :: Vec3 -> PlaneEq -> PlaneEq
+translatePlaneEq off (PlaneEq a b c d) = PlaneEq a b c d'
+  where
+    -- See http://stackoverflow.com/questions/7685495
+    n = Vec3 a b c
+    o = d *& n
+    o' = o &+ off
+    d' = o' `dotprod` n -- distance from origin along normal vector
+
+
+translatePlane :: Vec3 -> Plane -> Plane
+translatePlane off p@Plane{ planeBounds = oldBounds, planeEq = oldEq }
+  = p{ planeBounds = V.map (off &+) oldBounds
+     , planeEq     = translatePlaneEq off oldEq }
+
+
+translateCloud :: Vec3 -> Cloud -> Cloud
+translateCloud off c@Cloud{ cloudPoints = oldPoints }
+  = c { cloudPoints = V.map (off &+) oldPoints }
+
+
+translateRoom :: Vec3 -> Room -> Room
+translateRoom off room@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud }
+  = room{ roomPlanes = map (translatePlane off) oldPlanes
+        , roomCloud = translateCloud off oldCloud
+        }
+
+
 loadRoom :: State -> FilePath -> IO ()
 loadRoom state@State{ transient = TransientState{ sRooms } } dir = do
   planes <- planesFromDir state dir
@@ -999,3 +1027,14 @@ loadRoom state@State{ transient = TransientState{ sRooms } } dir = do
   addPointCloud state cloud
   i <- genID state
   sRooms $~ Map.insert i (Room i planes cloud)
+  putStrLn $ "Room " ++ show i ++ " loaded"
+
+
+changeRoom :: State -> ID -> (Room -> Room) -> IO ()
+changeRoom state@State{ transient = TransientState { sRooms } } i f = do
+  (Map.lookup i <$> get sRooms) >>= \case
+    Nothing -> putStrLn "no room loaded"
+    Just r -> do
+      let r' = f r
+      sRooms $~ Map.insert i r'
+      updatePointCloud state (roomCloud r')
