@@ -14,7 +14,7 @@ import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Int (Int64)
-import           Data.List (find)
+import           Data.List (find, intercalate)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Data.Packed.Matrix as Matrix
 import           Data.Packed.Matrix ((><))
@@ -61,6 +61,37 @@ data Cloud = Cloud
 
 data DragMode = Rotate | Translate
   deriving (Eq, Ord, Show)
+
+
+class ShortShow a where
+  shortShow :: a -> String
+
+  shortPrint :: a -> IO ()
+  shortPrint = putStrLn . shortShow
+
+instance ShortShow CloudColor where
+  shortShow = \case
+    c@OneColor{} -> show c
+    ManyColors cols -> "ManyColors (" ++ show (V.length cols) ++ " points)"
+
+instance ShortShow Cloud where
+  shortShow (Cloud i col points) = "Cloud" ++ concat
+    [ " ", show i, " (", shortShow col, ")"
+    , " (", show (V.length points), " points)"
+    ]
+
+instance ShortShow Word32 where
+  shortShow = show
+
+instance (ShortShow a, ShortShow b) => ShortShow (a, b) where
+  shortShow (a,b) = "(" ++ shortShow a ++ "," ++ shortShow b ++ ")"
+
+instance (ShortShow a) => ShortShow [a] where
+  shortShow l = "[" ++ intercalate ", " (map shortShow l) ++ "]"
+
+instance (ShortShow a, ShortShow b) => ShortShow (Map a b) where
+  shortShow = shortShow . Map.toList
+
 
 -- TODO make all State/TransientState fields strict so that we get an error if not initialized
 
