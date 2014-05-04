@@ -560,6 +560,7 @@ input state (Char 'p') Down _ _ = addRandomPoints state
 input state (Char '\r') Down _ _ = addDevicePointCloud state
 input state (Char 'm') Down _ _ = addCornerPoint state
 input state (Char 'r') Down _ _ = rotateSelectedPlanes state
+input state (Char 'l') Down _ _ = devSetup state
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
 
@@ -1057,3 +1058,18 @@ changeRoom state@State{ transient = TransientState { sRooms } } i f = do
 addPlane :: State -> Plane -> IO ()
 addPlane State{ transient = TransientState{ sPlanes } } p@Plane{ planeID = i } = do
   sPlanes $~ (Map.insert i p)
+
+
+devSetup :: State -> IO ()
+devSetup state = do
+  -- Coord planes
+  i1 <- genID state
+  i2 <- genID state
+  i3 <- genID state
+  addPlane state (Plane i1 (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 0 5 5, Vec3 0 0 5]) (Color3 1 0 0) (PlaneEq 1 0 0 0))
+  addPlane state (Plane i2 (V.fromList [Vec3 0 0 0, Vec3 5 0 0, Vec3 5 0 5, Vec3 0 0 5]) (Color3 0 1 0) (PlaneEq 0 1 0 0))
+  addPlane state (Plane i3 (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 5 5 0, Vec3 5 0 0]) (Color3 0 0 1) (PlaneEq 0 0 1 0))
+
+  r <- loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
+  changeRoom state (roomID r) (translateRoom (Vec3 10 0 0))
+  void $ loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
