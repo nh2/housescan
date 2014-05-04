@@ -1032,14 +1032,16 @@ translateRoom off room@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud }
         }
 
 
-loadRoom :: State -> FilePath -> IO ()
+loadRoom :: State -> FilePath -> IO Room
 loadRoom state@State{ transient = TransientState{ sRooms } } dir = do
   planes <- planesFromDir state dir
   cloud <- cloudFromFile state (dir </> "cloud_downsampled.pcd")
   addPointCloud state cloud
   i <- genID state
-  sRooms $~ Map.insert i (Room i planes cloud)
+  let room = Room i planes cloud
+  sRooms $~ Map.insert i room
   putStrLn $ "Room " ++ show i ++ " loaded"
+  return room
 
 
 changeRoom :: State -> ID -> (Room -> Room) -> IO ()
