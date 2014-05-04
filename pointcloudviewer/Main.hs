@@ -862,7 +862,7 @@ loadPCDFile state file = do
 
 
 
-data PlaneEq = PlaneEq !Float !Float !Float !Float -- parameters: a b c d
+data PlaneEq = PlaneEq !Vec3 !Float -- parameters: a b c d
   deriving (Eq, Ord, Show)
 
 
@@ -870,7 +870,7 @@ planeEqsFromFile :: FilePath -> IO [PlaneEq]
 planeEqsFromFile file = do
   let float = realToFrac <$> double
       floatS = float <* skipSpace
-      planesParser = (PlaneEq <$> floatS <*> floatS <*> floatS <*> float)
+      planesParser = (PlaneEq <$> (Vec3 <$> floatS <*> floatS <*> floatS) <*> float)
                      `sepBy1'` endOfLine
   parseOnly planesParser <$> BS.readFile file >>= \case
     Left err -> error $ "Could not load planes: " ++ show err
@@ -894,13 +894,15 @@ planesFromDir state dir = do
 
 
 loadPlanes :: State -> FilePath -> IO ()
-loadPlanes state@State{ transient = TransientState{ sPlanes } } dir = do
+loadPlanes state dir = do
   planes <- planesFromDir state dir
   forM_ planes (addPlane state)
 
 
 planeCorner :: PlaneEq -> PlaneEq -> PlaneEq -> Vec3
-planeCorner (PlaneEq a1 b1 c1 d1) (PlaneEq a2 b2 c2 d2) (PlaneEq a3 b3 c3 d3) = Vec3 (f x) (f y) (f z)
+planeCorner (PlaneEq (Vec3 a1 b1 c1) d1)
+            (PlaneEq (Vec3 a2 b2 c2) d2)
+            (PlaneEq (Vec3 a3 b3 c3) d3) = Vec3 (f x) (f y) (f z)
   where
     f = realToFrac :: Double -> Float
     d = realToFrac :: Float -> Double
@@ -934,26 +936,21 @@ addCornerPoint state@State{ transient = TransientState{..}, ..} = do
 -- Note that if you actually want to rotate plane 2 onto plane 1, you have
 -- to take the inverse or pass them the other way around!
 rotationBetweenPlaneEqs :: PlaneEq -> PlaneEq -> Mat3
-rotationBetweenPlaneEqs (PlaneEq a1 b1 c1 _) (PlaneEq a2 b2 c2 _) = o
+rotationBetweenPlaneEqs (PlaneEq n1 _) (PlaneEq n2 _) = o
   where
     -- TODO Use http://lolengine.net/blog/2013/09/18/beautiful-maths-quaternion-from-vectors
     o = rotMatrix3 axis theta
-    flt = realToFrac
-    n1 = Vec3 (flt a1) (flt b1) (flt c1)
-    n2 = Vec3 (flt a2) (flt b2) (flt c2)
     axis = crossprod n1 n2
     costheta = dotprod n1 n2 / (norm n1 * norm n2)
     theta = acos costheta
 
 
 rotatePlaneEq :: Mat3 -> PlaneEq -> PlaneEq
-rotatePlaneEq rotMat (PlaneEq a b c d) = PlaneEq a' b' c' d'
+rotatePlaneEq rotMat (PlaneEq n d) = PlaneEq n' d'
   where
     -- See http://stackoverflow.com/questions/7685495
     -- TODO normalize the output plane if I like
-    n = Vec3 a b c
     n' = n .* rotMat
-    Vec3 a' b' c' = n'
     d' = d -- d is distance from plane to origin
 
 
@@ -1037,10 +1034,9 @@ rotateRoom rotMat r = rotateRoomAround (roomMean r) rotMat r
 
 
 translatePlaneEq :: Vec3 -> PlaneEq -> PlaneEq
-translatePlaneEq off (PlaneEq a b c d) = PlaneEq a b c d'
+translatePlaneEq off (PlaneEq n d) = PlaneEq n d'
   where
     -- See http://stackoverflow.com/questions/7685495
-    n = Vec3 a b c
     o = d *& n
     o' = o &+ off
     d' = o' `dotprod` n -- distance from origin along normal vector
@@ -1097,9 +1093,9 @@ devSetup state = do
   i1 <- genID state
   i2 <- genID state
   i3 <- genID state
-  addPlane state (Plane i1 (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 0 5 5, Vec3 0 0 5]) (Color3 1 0 0) (PlaneEq 1 0 0 0))
-  addPlane state (Plane i2 (V.fromList [Vec3 0 0 0, Vec3 5 0 0, Vec3 5 0 5, Vec3 0 0 5]) (Color3 0 1 0) (PlaneEq 0 1 0 0))
-  addPlane state (Plane i3 (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 5 5 0, Vec3 5 0 0]) (Color3 0 0 1) (PlaneEq 0 0 1 0))
+  addPlane state (Plane i1 (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 0 5 5, Vec3 0 0 5]) (Color3 1 0 0) (PlaneEq (Vec3 1 0 0) 0))
+  addPlane state (Plane i2 (V.fromList [Vec3 0 0 0, Vec3 5 0 0, Vec3 5 0 5, Vec3 0 0 5]) (Color3 0 1 0) (PlaneEq (Vec3 0 1 0) 0))
+  addPlane state (Plane i3 (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 5 5 0, Vec3 5 0 0]) (Color3 0 0 1) (PlaneEq (Vec3 0 0 1) 0))
 
   r <- loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
   changeRoom state (roomID r) (translateRoom (Vec3 10 0 0))
