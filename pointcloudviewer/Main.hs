@@ -1063,9 +1063,20 @@ translateRoom off room@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud }
 
 loadRoom :: State -> FilePath -> IO Room
 loadRoom state@State{ transient = TransientState{ sRooms } } dir = do
-  planes <- planesFromDir state dir
   cloud <- cloudFromFile state (dir </> "cloud_downsampled.pcd")
   addPointCloud state cloud
+
+  -- Make all plane normals inward facing
+  let center = cloudMean cloud
+      makeInwardFacing p@Plane{ planeEq = PlaneEq n d }
+        = p{ planeEq = let inwardVec = center - planeMean p
+                           pointsInward = inwardVec `dotprod` n > 0
+                        in if pointsInward then PlaneEq n d
+                                           else PlaneEq (-n) (-d)
+           }
+
+  planes <- map makeInwardFacing <$> planesFromDir state dir
+
   i <- genID state
   let room = Room i planes cloud
   sRooms $~ Map.insert i room
