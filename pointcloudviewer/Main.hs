@@ -864,7 +864,7 @@ planesFromDir state dir = do
 loadPlanes :: State -> FilePath -> IO ()
 loadPlanes state@State{ transient = TransientState{ sPlanes } } dir = do
   planes <- planesFromDir state dir
-  sPlanes $~ (Map.fromList [ (planeID p, p) | p <- planes ] `Map.union`)
+  forM_ planes (addPlane state)
 
 
 planeCorner :: PlaneEq -> PlaneEq -> PlaneEq -> Vec3
@@ -979,7 +979,7 @@ rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
         Nothing -> do
           let p1' = rotatePlane rot p1
           putStrLn $ "Rotating plane"
-          sPlanes $~ (Map.insert pid1 p1') -- changes p2
+          addPlane state p1'
 
       sSelectedPlanes $= []
 
@@ -1050,3 +1050,8 @@ changeRoom state@State{ transient = TransientState { sRooms } } i f = do
       let r' = f r
       sRooms $~ Map.insert i r'
       updatePointCloud state (roomCloud r')
+
+
+addPlane :: State -> Plane -> IO ()
+addPlane State{ transient = TransientState{ sPlanes } } p@Plane{ planeID = i } = do
+  sPlanes $~ (Map.insert i p)
