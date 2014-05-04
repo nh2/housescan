@@ -1010,9 +1010,10 @@ rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
           putStrLn $ "Rotating plane"
           addPlane state p1'
 
-      sSelectedPlanes $= []
-
     ps -> putStrLn $ "Only " ++ show (length ps) ++ " planes selected, need 2"
+
+  -- Reset selected planes in any case
+  sSelectedPlanes $= []
 
 
 rotateCloudAround :: Vec3 -> Mat3 -> Cloud -> Cloud
