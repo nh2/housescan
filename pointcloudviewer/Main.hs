@@ -962,7 +962,7 @@ findRoomContainingPlane rooms i = find (\r -> any ((i == ) . planeID) (roomPlane
 rotateSelectedPlanes :: State -> IO ()
 rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
   get sSelectedPlanes >>= \case
-    p1:p2:rest -> do
+    p1:p2:_ -> do
       -- We want to rotate p1.
       let pid1 = planeID p1
           rot = rotationBetweenPlaneEqs (planeEq p1) (planeEq p2)
@@ -980,7 +980,8 @@ rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
           let p1' = rotatePlane rot p1
           putStrLn $ "Rotating plane"
           sPlanes $~ (Map.insert pid1 p1') -- changes p2
-          sSelectedPlanes $= rest
+
+      sSelectedPlanes $= []
 
     ps -> putStrLn $ "Only " ++ show (length ps) ++ " planes selected, need 2"
 
