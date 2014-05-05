@@ -34,4 +34,5 @@ executable pointcloudviewer
                      , cpu >= 0.1.2
                      , hmatrix >= 0.15.2.0
                      , filepath >= 1.3.0.1
+                     , QuickCheck >= 2.7.3
   ghc-options: -Wall -threaded
