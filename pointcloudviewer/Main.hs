@@ -28,7 +28,7 @@ import           Foreign.C.Types (CInt)
 import           Foreign.Marshal.Alloc (alloca)
 import           Foreign.Ptr (Ptr, nullPtr)
 import           Foreign.Storable (peek)
-import           Foreign.Store (newStore, lookupStore, readStore)
+import           Foreign.Store (newStore, lookupStore, readStore, deleteStore)
 import           Graphics.GLUtil
 import           Graphics.UI.GLUT hiding (Plane)
 import           Linear (V3(..))
@@ -40,7 +40,6 @@ import           System.FilePath ((</>))
 import           System.Random (randomRIO)
 import           System.SelfRestart (forkSelfRestartExePollWithAction)
 import           System.IO (hPutStrLn, stderr)
-import           System.IO.Unsafe (unsafePerformIO)
 import           HoniHelper (takeDepthSnapshot)
 
 
@@ -681,16 +680,6 @@ main = do
 mainState :: State -> IO ()
 mainState state@State{..} = do
 
-  -- Save the state globally
-  globalStateRef $= Just state
-  lookupStore 0 >>= \case -- to survive GHCI reloads
-    Just _  -> return ()
-    Nothing -> do
-      -- Only store an empty transient state so that we can't access
-      -- things that cannot survive a reload (like GPU buffers).
-      emptytTransientState <- createTransientState
-      void $ newStore state{ transient = emptytTransientState }
-
   _ <- forkSelfRestartExePollWithAction 1.0 $ do
     putStrLn "executable changed, restarting"
     threadDelay 1500000
@@ -736,7 +725,8 @@ mainState state@State{..} = do
   -- Restart if requested
   on sRestartRequested $ do
     putStrLn "restarting"
-    sRestartRequested $= False
+    sRestartRequested $= False -- Note: This is for the new state;
+                               -- works because this is not transient.
     -- We can't just call `mainState state` here since that would (tail) call
     -- the original function instead of the freshly loaded one. That's why the
     -- function is put into the IORef to be updated by `restart`.
@@ -744,33 +734,46 @@ mainState state@State{..} = do
     f
 
 
+getState :: IO State
+getState = lookupStore 0 >>= \case
+  Just store -> readStore store
+  Nothing    -> restart >> getState
 
--- | Global state.
-globalState :: State
-globalState = unsafePerformIO $ do
-  get globalStateRef >>= \case
-    Nothing -> error "global state not set!"
-    Just s  -> return s
 
-{-# NOINLINE globalStateRef #-}
-globalStateRef :: IORef (Maybe State)
-globalStateRef = unsafePerformIO $ do
-  -- putStrLn "setting globalState"
-  newIORef Nothing
+run :: (State -> IO a) -> IO a
+run f = getState >>= f
+
 
 -- For restarting the program in GHCI while keeping the `State` intact.
 restart :: IO ()
 restart = do
   lookupStore 0 >>= \case
-    Nothing -> putStrLn "restart: starting for first time" >> (void $ forkIO main)
+    Nothing -> do
+      putStrLn "restart: starting for first time"
+      state <- createState
+      _ <- newStore state
+      void $ forkIO (mainState state)
     Just store -> do
-      state@State{..} <- readStore store
+      putStrLn "restart: having existing store"
+      oldState <- readStore store
+
+      -- Only store an empty transient state so that we can't access
+      -- things that cannot survive a reload (like GPU buffers).
+      emptytTransientState <- createTransientState
+      let newState = oldState{ transient = emptytTransientState }
+
+      deleteStore store
+      _ <- newStore newState
+
       -- If OpenGL is (still or already) initialized, just ask it to
       -- shut down in the next `idle` loop.
-      get sGlInitialized >>= \case
-        True  -> do sRestartRequested $= True
-                    sRestartFunction $= mainState state
-        False -> void $ forkIO $ mainState state
+      get (sGlInitialized oldState) >>= \case
+        True  -> do -- Ask the GL loop running on the old state to
+                    -- restart for us.
+                    sRestartRequested oldState $= True
+                    sRestartFunction oldState $= mainState newState
+                    -- TODO We should also deallocate all BufferObjects.
+        False -> void $ forkIO $ mainState newState
 
 
 getRandomColor :: IO (Color3 GLfloat)
