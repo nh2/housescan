@@ -1115,3 +1115,12 @@ devSetup state = do
   r <- loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
   changeRoom state (roomID r) (translateRoom (Vec3 10 0 0))
   void $ loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
+
+
+-- | For debugging / ghci only.
+dfl :: [Vec3] -> IO ()
+dfl ps = do
+  state <- getState
+  i <- genID state
+  col <- getRandomColor
+  addPointCloud state (Cloud i (OneColor col) (V.fromList ps))
