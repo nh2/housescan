@@ -591,6 +591,7 @@ input state (Char '\r') Down _ _ = addDevicePointCloud state
 input state (Char 'm') Down _ _ = addCornerPoint state
 input state (Char 'r') Down _ _ = rotateSelectedPlanes state
 input state (Char 'l') Down _ _ = devSetup state
+input _ (SpecialKey KeyF5) Down _ _ = restart
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
 
