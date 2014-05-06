@@ -84,6 +84,18 @@ instance ShortShow Cloud where
     , " (", show (V.length points), " points)"
     ]
 
+instance ShortShow Plane where
+  shortShow (Plane i eq col bounds) = "PlaneXXX" ++ concat
+    [ " ", show i, " (", show eq, ")"
+    , " (", show col, ") ", show bounds
+    ]
+
+instance ShortShow Room where
+  shortShow (Room i planes cloud corners) = "Room" ++ concat
+    [ " ", show i, " ", shortShow planes, " (", shortShow cloud, ")"
+    , " ", show corners
+    ]
+
 instance ShortShow Word32 where
   shortShow = show
 
