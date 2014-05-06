@@ -30,7 +30,7 @@ import           Foreign.Ptr (Ptr, nullPtr)
 import           Foreign.Storable (peek)
 import           Foreign.Store (newStore, lookupStore, readStore, deleteStore)
 import           Graphics.GLUtil
-import           Graphics.UI.GLUT hiding (Plane)
+import           Graphics.UI.GLUT hiding (Plane, Normal3)
 import           Linear (V3(..))
 import           Numeric.LinearAlgebra.Algorithms (linearSolve)
 import qualified PCD.Data as PCD
@@ -45,6 +45,11 @@ import           HoniHelper (takeDepthSnapshot)
 
 -- Orphan instance so that we can derive Ord
 instance Ord Vec3 where
+-- Really questionable why this isn't there already
+instance Eq Normal3 where
+  n1 == n2 = fromNormal n1 == fromNormal n2
+instance Ord Normal3 where
+  n1 `compare` n2 = fromNormal n1 `compare` fromNormal n2
 
 
 data CloudColor
@@ -871,15 +876,33 @@ loadPCDFile state file = do
 
 
 
-data PlaneEq = PlaneEq !Vec3 !Float -- parameters: a b c d
+-- | Plane equation: ax + by + cz = d, or: n*xyz = d
+-- (Hessian normal form). It matters that the d is on the
+-- right hand side since we care about plane normal direction.
+data PlaneEq = PlaneEq !Normal3 !Float -- parameters: a b c d
   deriving (Eq, Ord, Show)
+
+mkPlaneEq :: Vec3 -> Float -> PlaneEq
+mkPlaneEq abc d = PlaneEq (mkNormal abc) (d / norm abc)
+
+mkPlaneEqABCD :: Float -> Float -> Float -> Float -> PlaneEq
+mkPlaneEqABCD a b c d = mkPlaneEq (Vec3 a b c) d
+
+mkPlaneEqABCPositiveD :: Float -> Float -> Float -> Float -> PlaneEq
+mkPlaneEqABCPositiveD a b c d = mkPlaneEqABCD a b c (-d)
+
+
+signedDistanceToPlaneEq :: PlaneEq -> Vec3 -> Float
+signedDistanceToPlaneEq (PlaneEq n d) p = fromNormal n `dotprod` p - d
 
 
 planeEqsFromFile :: FilePath -> IO [PlaneEq]
 planeEqsFromFile file = do
   let float = realToFrac <$> double
       floatS = float <* skipSpace
-      planesParser = (PlaneEq <$> (Vec3 <$> floatS <*> floatS <*> floatS) <*> float)
+      -- PCL exports plane in the form `ax + by + cz + d = 0`,
+      -- we need `ax + by + cz = d`.
+      planesParser = (mkPlaneEqABCPositiveD <$> floatS <*> floatS <*> floatS <*> float)
                      `sepBy1'` endOfLine
   parseOnly planesParser <$> BS.readFile file >>= \case
     Left err -> error $ "Could not load planes: " ++ show err
@@ -908,17 +931,21 @@ loadPlanes state dir = do
 
 
 planeCorner :: PlaneEq -> PlaneEq -> PlaneEq -> Vec3
-planeCorner (PlaneEq (Vec3 a1 b1 c1) d1)
-            (PlaneEq (Vec3 a2 b2 c2) d2)
-            (PlaneEq (Vec3 a3 b3 c3) d3) = Vec3 (f x) (f y) (f z)
+planeCorner (PlaneEq n1 d1)
+            (PlaneEq n2 d2)
+            (PlaneEq n3 d3) = Vec3 (f x) (f y) (f z)
   where
+    -- TODO Figure out how to detect when the system isn't solvable (parallel planes)
+    Vec3 a1 b1 c1 = fromNormal n1
+    Vec3 a2 b2 c2 = fromNormal n2
+    Vec3 a3 b3 c3 = fromNormal n3
     f = realToFrac :: Double -> Float
     d = realToFrac :: Float -> Double
     [x,y,z] = HmatrixVec.toList . Matrix.flatten $ linearSolve lhs rhs
     lhs = (3><3)[ d a1, d b1, d c1
                 , d a2, d b2, d c2
                 , d a3, d b3, d c3 ]
-    rhs = (3><1)[ -(d d1), -(d d2), -(d d3) ]
+    rhs = (3><1)[ d d1, d d2, d d3 ]
 
 
 red :: Color3 GLfloat
@@ -946,21 +973,20 @@ addCornerPoint state@State{ transient = TransientState{..}, ..} = do
 -- Note that if you actually want to rotate plane 2 onto plane 1, you have
 -- to take the inverse or pass them the other way around!
 rotationBetweenPlaneEqs :: PlaneEq -> PlaneEq -> Mat3
-rotationBetweenPlaneEqs (PlaneEq n1 _) (PlaneEq n2 _) = o
+rotationBetweenPlaneEqs (PlaneEq n1 _) (PlaneEq n2 _) = o -- TODO change this to take Normal3 directly instead of planeEqs
   where
     -- TODO Use http://lolengine.net/blog/2013/09/18/beautiful-maths-quaternion-from-vectors
-    o = rotMatrix3 axis theta
+    o = rotMatrix3' axis theta
     axis = crossprod n1 n2
     costheta = dotprod n1 n2 / (norm n1 * norm n2)
     theta = acos costheta
 
 
 rotatePlaneEq :: Mat3 -> PlaneEq -> PlaneEq
-rotatePlaneEq rotMat (PlaneEq n d) = PlaneEq n' d'
+rotatePlaneEq rotMat (PlaneEq n d) = mkPlaneEq n' d'
   where
     -- See http://stackoverflow.com/questions/7685495
-    -- TODO normalize the output plane if I like
-    n' = n .* rotMat
+    n' = fromNormal n .* rotMat
     d' = d -- d is distance from plane to origin
 
 
@@ -1045,12 +1071,13 @@ rotateRoom rotMat r = rotateRoomAround (roomMean r) rotMat r
 
 
 translatePlaneEq :: Vec3 -> PlaneEq -> PlaneEq
-translatePlaneEq off (PlaneEq n d) = PlaneEq n d'
+-- translatePlaneEq off (PlaneEq n d) = PlaneEq n d' -- TODO this is ok but needs comment
+translatePlaneEq off (PlaneEq n d) = mkPlaneEq (fromNormal n) d'
   where
     -- See http://stackoverflow.com/questions/7685495
-    o = d *& n
+    o = d *& fromNormal n
     o' = o &+ off
-    d' = o' `dotprod` n -- distance from origin along normal vector
+    d' = o' `dotprod` fromNormal n -- distance from origin along normal vector
 
 
 translatePlane :: Vec3 -> Plane -> Plane
@@ -1080,9 +1107,9 @@ loadRoom state@State{ transient = TransientState{ sRooms } } dir = do
   let center = cloudMean cloud
       makeInwardFacing p@Plane{ planeEq = PlaneEq n d }
         = p{ planeEq = let inwardVec = center - planeMean p
-                           pointsInward = inwardVec `dotprod` n > 0
+                           pointsInward = inwardVec `dotprod` fromNormal n > 0
                         in if pointsInward then PlaneEq n d
-                                           else PlaneEq (-n) (-d)
+                                           else PlaneEq (flipNormal n) (-d)
            }
 
   planes <- map makeInwardFacing <$> planesFromDir state dir
@@ -1115,9 +1142,9 @@ devSetup state = do
   i1 <- genID state
   i2 <- genID state
   i3 <- genID state
-  addPlane state (Plane i1 (PlaneEq (Vec3 1 0 0) 0) (Color3 1 0 0) (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 0 5 5, Vec3 0 0 5]))
-  addPlane state (Plane i2 (PlaneEq (Vec3 0 1 0) 0) (Color3 0 1 0) (V.fromList [Vec3 0 0 0, Vec3 5 0 0, Vec3 5 0 5, Vec3 0 0 5]))
-  addPlane state (Plane i3 (PlaneEq (Vec3 0 0 1) 0) (Color3 0 0 1) (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 5 5 0, Vec3 5 0 0]))
+  addPlane state (Plane i1 (PlaneEq (mkNormal $ Vec3 1 0 0) 0) (Color3 1 0 0) (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 0 5 5, Vec3 0 0 5]))
+  addPlane state (Plane i2 (PlaneEq (mkNormal $ Vec3 0 1 0) 0) (Color3 0 1 0) (V.fromList [Vec3 0 0 0, Vec3 5 0 0, Vec3 5 0 5, Vec3 0 0 5]))
+  addPlane state (Plane i3 (PlaneEq (mkNormal $ Vec3 0 0 1) 0) (Color3 0 0 1) (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 5 5 0, Vec3 5 0 0]))
 
   r <- loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
   changeRoom state (roomID r) (translateRoom (Vec3 10 0 0))
