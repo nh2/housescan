@@ -123,6 +123,8 @@ data State
           , sUnderCursor :: IORef (Maybe ID)
           , sDebugPickingDrawVisible :: IORef Bool
           , sDebugPickingTiming :: IORef Bool
+          -- Visual debugging
+          , sDebugProjectPlanePointsToEq :: IORef Bool
           -- Transient state
           , transient :: TransientState
           }
@@ -379,10 +381,19 @@ drawPointClouds State{ transient = TransientState{ sAllocatedClouds } } = do
 
 
 drawPlanes :: State -> IO ()
-drawPlanes State{ sUnderCursor, transient = TransientState{ sPlanes, sRooms, sPickingMode } } = do
+drawPlanes State{ transient = TransientState{ sPlanes, sRooms, sPickingMode }, ..} = do
 
   planePols <- Map.elems <$> get sPlanes
-  roomPols <- concatMap roomPlanes . Map.elems <$> get sRooms
+  roomPlanes <- concatMap roomPlanes . Map.elems <$> get sRooms
+
+  debugProject <- get sDebugProjectPlanePointsToEq
+  let roomPols
+        -- This reveals bugs in the plane projection code: It uses the
+        -- actual plane equation for drawing the points.
+        | debugProject = [ p{ planeBounds = V.map (projectToPlane eq) points
+                            } | p@(Plane _ eq _ points) <- roomPlanes ]
+        | otherwise = roomPlanes
+
   let pols = planePols ++ roomPols
 
   picking <- get sPickingMode
@@ -662,6 +673,7 @@ createState = do
   sUnderCursor      <- newIORef Nothing
   sDebugPickingDrawVisible <- newIORef False
   sDebugPickingTiming      <- newIORef False
+  sDebugProjectPlanePointsToEq <- newIORef False
   transient         <- createTransientState
 
   return State{..} -- RecordWildCards for initialisation convenience
@@ -898,6 +910,10 @@ mkPlaneEqABCPositiveD a b c d = mkPlaneEqABCD a b c (-d)
 
 signedDistanceToPlaneEq :: PlaneEq -> Vec3 -> Float
 signedDistanceToPlaneEq (PlaneEq n d) p = fromNormal n `dotprod` p - d
+
+
+projectToPlane :: PlaneEq -> Vec3 -> Vec3
+projectToPlane eq@(PlaneEq n _) p = p &- (signedDistanceToPlaneEq eq p *& fromNormal n)
 
 
 planeEqsFromFile :: FilePath -> IO [PlaneEq]
