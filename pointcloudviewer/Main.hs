@@ -1040,19 +1040,32 @@ rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
     [p1,p2] -> do
       -- We want to rotate p1.
       let pid1 = planeID p1
-          rot = rotationBetweenPlaneEqs (planeEq p1) (planeEq p2)
       -- First check if p1 is part of a room.
       rooms <- Map.elems <$> get sRooms
       case findRoomContainingPlane rooms pid1 of
         Just oldRoom@Room{ roomID = i } -> do
+          let
+              -- Make all plane normals inward facing
+              roomCenter = cloudMean (roomCloud oldRoom)
+              makeInwardFacing pointOnPlane (PlaneEq n d)
+                = let inwardVec = roomCenter - pointOnPlane
+                      pointsInward = inwardVec `dotprod` fromNormal n > 0
+                   in if pointsInward then PlaneEq n d
+                                      else PlaneEq (flipNormal n) (-d)
+
+              -- TODO use one point on plane instead of planeMean
+              rot = rotationBetweenPlaneEqs (makeInwardFacing (planeMean p1) (planeEq p1)) (planeEq p2)
+
           let room = rotateRoom rot oldRoom
               cloud = roomCloud room
+
           putStrLn $ "Rotating room"
           sRooms $~ Map.insert i room
           updatePointCloud state cloud
 
         Nothing -> do
           let p1' = rotatePlane rot p1
+              rot = rotationBetweenPlaneEqs (planeEq p1) (planeEq p2)
           putStrLn $ "Rotating plane"
           addPlane state p1'
 
@@ -1113,16 +1126,7 @@ loadRoom state@State{ transient = TransientState{ sRooms } } dir = do
   cloud <- cloudFromFile state (dir </> "cloud_downsampled.pcd")
   addPointCloud state cloud
 
-  -- Make all plane normals inward facing
-  let center = cloudMean cloud
-      makeInwardFacing p@Plane{ planeEq = PlaneEq n d }
-        = p{ planeEq = let inwardVec = center - planeMean p
-                           pointsInward = inwardVec `dotprod` fromNormal n > 0
-                        in if pointsInward then PlaneEq n d
-                                           else PlaneEq (flipNormal n) (-d)
-           }
-
-  planes <- map makeInwardFacing <$> planesFromDir state dir
+  planes <- planesFromDir state dir
 
   i <- genID state
   let room = Room i planes cloud
