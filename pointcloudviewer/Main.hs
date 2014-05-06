@@ -924,12 +924,13 @@ red = Color3 1 0 0
 addCornerPoint :: State -> IO ()
 addCornerPoint state@State{ transient = TransientState{..}, ..} = do
   get sSelectedPlanes >>= \case
-    p1:p2:p3:rest -> let corner = planeCorner (planeEq p1) (planeEq p2) (planeEq p3)
-                      in do
-                           putStrLn $ "Merged planes to corner " ++ show corner
-                           i <- genID state
-                           addPointCloud state $ Cloud i (OneColor red) (V.fromList [corner])
-                           sSelectedPlanes $= rest
+    p1:p2:p3:rest -> do
+      let corner = planeCorner (planeEq p1) (planeEq p2) (planeEq p3)
+
+      putStrLn $ "Merged planes to corner " ++ show corner
+      i <- genID state
+      addPointCloud state $ Cloud i (OneColor red) (V.fromList [corner])
+      sSelectedPlanes $= rest
 
     ps -> putStrLn $ "Only " ++ show (length ps) ++ " planes selected, need 3"
 
