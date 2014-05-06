@@ -985,9 +985,19 @@ rotationBetweenPlaneEqs (PlaneEq n1 _) (PlaneEq n2 _) = o -- TODO change this to
 rotatePlaneEq :: Mat3 -> PlaneEq -> PlaneEq
 rotatePlaneEq rotMat (PlaneEq n d) = mkPlaneEq n' d'
   where
+    n' = fromNormal n .* rotMat
+    d' = d -- The distance from plane to origin does
+           -- not change when rotating around origin.
+
+
+rotatePlaneEqAround :: Vec3 -> Mat3 -> PlaneEq -> PlaneEq
+rotatePlaneEqAround rotCenter rotMat (PlaneEq n d) = mkPlaneEq n' d'
+  where
     -- See http://stackoverflow.com/questions/7685495
     n' = fromNormal n .* rotMat
-    d' = d -- d is distance from plane to origin
+    o = d *& fromNormal n
+    o' = rotateAround rotCenter rotMat o
+    d' = o' `dotprod` fromNormal n -- distance from origin along normal vector
 
 
 -- | Rotates a point around a rotation center.
@@ -997,7 +1007,7 @@ rotateAround rotCenter rotMat p = ((p &- rotCenter) .* rotMat) &+ rotCenter
 
 rotatePlaneAround :: Vec3 -> Mat3 -> Plane -> Plane
 rotatePlaneAround rotCenter rotMat p@Plane{ planeEq = oldEq, planeBounds = oldBounds }
-  = p{ planeEq     = rotatePlaneEq rotMat oldEq
+  = p{ planeEq     = rotatePlaneEqAround rotCenter rotMat oldEq
      , planeBounds = V.map (rotateAround rotCenter rotMat) oldBounds }
 
 
