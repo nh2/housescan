@@ -151,6 +151,7 @@ data Room = Room
   { roomID      :: !ID
   , roomPlanes  :: ![Plane]
   , roomCloud   :: Cloud
+  , roomCorners :: [Vec3] -- TODO newtype this
   } deriving (Eq, Ord, Show)
 
 
@@ -328,6 +329,8 @@ drawObjects state@State{ transient = TransientState{ sPickingMode } } = do
 
   when (not picking) $ drawPointClouds state
 
+  when (not picking) $ drawRoomCorners state
+
   drawPlanes state
 
 
@@ -378,6 +381,16 @@ drawPointClouds State{ transient = TransientState{ sAllocatedClouds } } = do
     clientState VertexArray $= Disabled
     -- If we dont' disable this, a draw with only 1 color using `color` will segfault
     clientState ColorArray $= Disabled
+
+
+drawRoomCorners :: State -> IO ()
+drawRoomCorners State{ transient = TransientState{ sRooms } } = do
+  roomCorners <- concatMap roomCorners . Map.elems <$> get sRooms
+
+  color red -- draw all corners in this color
+
+  renderPrimitive Points $ do
+    forM_ roomCorners vertexVec3
 
 
 drawPlanes :: State -> IO ()
@@ -978,9 +991,17 @@ addCornerPoint state@State{ transient = TransientState{..}, ..} = do
     [p1,p2,p3]-> do
       let corner = planeCorner (planeEq p1) (planeEq p2) (planeEq p3)
 
-      putStrLn $ "Merged planes to corner " ++ show corner
-      i <- genID state
-      addPointCloud state $ Cloud i (OneColor red) (V.fromList [corner])
+      -- First check if p1 is part of a room.
+      rooms <- Map.elems <$> get sRooms
+      case [ r | pid <- map planeID [p1, p2, p3]
+               , Just r <- [findRoomContainingPlane rooms pid] ] of
+        [r@Room{ roomID = i },r2,r3] | roomID r2 == i && roomID r3 == i -> do
+          putStrLn $ "Merging planes of room to corner " ++ show corner
+          sRooms $~ Map.insert i r{ roomCorners = corner : roomCorners r }
+        _ -> do
+          putStrLn $ "Merged planes to corner " ++ show corner
+          i <- genID state
+          addPointCloud state $ Cloud i (OneColor red) (V.fromList [corner])
 
     ps -> putStrLn $ show (length ps) ++ " planes selected, need 3"
 
@@ -1105,9 +1126,11 @@ roomMean Room{ roomCloud } = cloudMean roomCloud
 
 
 rotateRoomAround :: Vec3 -> Mat3 -> Room -> Room
-rotateRoomAround rotCenter rotMat r@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud }
+rotateRoomAround rotCenter rotMat r@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomCorners = oldCorners }
   = r{ roomPlanes = map (rotatePlaneAround rotCenter rotMat) oldPlanes
-     , roomCloud = rotateCloudAround rotCenter rotMat oldCloud }
+     , roomCloud = rotateCloudAround rotCenter rotMat oldCloud
+     , roomCorners = map (rotateAround rotCenter rotMat) oldCorners
+     }
 
 rotateRoom :: Mat3 -> Room -> Room
 rotateRoom rotMat r = rotateRoomAround (roomMean r) rotMat r
@@ -1135,9 +1158,10 @@ translateCloud off c@Cloud{ cloudPoints = oldPoints }
 
 
 translateRoom :: Vec3 -> Room -> Room
-translateRoom off room@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud }
+translateRoom off room@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomCorners = oldCorners  }
   = room{ roomPlanes = map (translatePlane off) oldPlanes
         , roomCloud = translateCloud off oldCloud
+        , roomCorners = map (off &+) oldCorners
         }
 
 
@@ -1149,7 +1173,7 @@ loadRoom state@State{ transient = TransientState{ sRooms } } dir = do
   planes <- planesFromDir state dir
 
   i <- genID state
-  let room = Room i planes cloud
+  let room = Room i planes cloud []
   sRooms $~ Map.insert i room
   putStrLn $ "Room " ++ show i ++ " loaded"
   return room
