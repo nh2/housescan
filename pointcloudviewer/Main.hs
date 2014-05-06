@@ -346,10 +346,7 @@ drawReferenceSystem = do
 
 
 drawPointClouds :: State -> IO ()
-drawPointClouds state@State{ transient = TransientState{ sAllocatedClouds } } = do
-
-  -- Allocate BufferObjects for all queued clouds
-  processCloudQueue state
+drawPointClouds State{ transient = TransientState{ sAllocatedClouds } } = do
 
   allocatedClouds <- get sAllocatedClouds
 
@@ -511,7 +508,10 @@ reshape State{..} (Size width height) = do
 
 -- |Animation
 idle :: State -> IdleCallback
-idle State{..} = do
+idle state@State{..} = do
+
+  -- Allocate BufferObjects for all queued clouds
+  processCloudQueue state
 
   get sLastLoopTime >>= \case
     Nothing -> return ()
