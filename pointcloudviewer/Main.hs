@@ -928,15 +928,16 @@ red = Color3 1 0 0
 addCornerPoint :: State -> IO ()
 addCornerPoint state@State{ transient = TransientState{..}, ..} = do
   get sSelectedPlanes >>= \case
-    p1:p2:p3:rest -> do
+    [p1,p2,p3]-> do
       let corner = planeCorner (planeEq p1) (planeEq p2) (planeEq p3)
 
       putStrLn $ "Merged planes to corner " ++ show corner
       i <- genID state
       addPointCloud state $ Cloud i (OneColor red) (V.fromList [corner])
-      sSelectedPlanes $= rest
 
-    ps -> putStrLn $ "Only " ++ show (length ps) ++ " planes selected, need 3"
+    ps -> putStrLn $ show (length ps) ++ " planes selected, need 3"
+
+  sSelectedPlanes $= []
 
 
 -- | Calculates the rotation matrix that will rotate plane1 into the same
@@ -1000,7 +1001,7 @@ findRoomContainingPlane rooms i = find (\r -> any ((i == ) . planeID) (roomPlane
 rotateSelectedPlanes :: State -> IO ()
 rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
   get sSelectedPlanes >>= \case
-    p1:p2:_ -> do
+    [p1,p2] -> do
       -- We want to rotate p1.
       let pid1 = planeID p1
           rot = rotationBetweenPlaneEqs (planeEq p1) (planeEq p2)
@@ -1019,7 +1020,7 @@ rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
           putStrLn $ "Rotating plane"
           addPlane state p1'
 
-    ps -> putStrLn $ "Only " ++ show (length ps) ++ " planes selected, need 2"
+    ps -> putStrLn $ show (length ps) ++ " planes selected, need 2"
 
   -- Reset selected planes in any case
   sSelectedPlanes $= []
