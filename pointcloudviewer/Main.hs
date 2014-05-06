@@ -134,9 +134,9 @@ data TransientState
 
 data Plane = Plane
   { planeID     :: !ID
-  , planeBounds :: Vector Vec3
-  , planeColor  :: !(Color3 GLfloat)
   , planeEq     :: !PlaneEq
+  , planeColor  :: !(Color3 GLfloat)
+  , planeBounds :: Vector Vec3
   } deriving (Eq, Ord, Show)
 
 
@@ -383,7 +383,7 @@ drawPlanes State{ sUnderCursor, transient = TransientState{ sPlanes, sRooms, sPi
   underCursor <- get sUnderCursor
 
   let drawPolys = do
-        forM_ pols $ \(Plane i points (Color3 r g b) _) -> do
+        forM_ pols $ \(Plane i _ (Color3 r g b) points) -> do
 
           renderPrimitive Polygon $ do
             color $ if
@@ -898,7 +898,7 @@ planesFromDir state dir = do
     col <- getRandomColor
     i <- genID state
 
-    return $ Plane i points col eq
+    return $ Plane i eq col points
 
 
 loadPlanes :: State -> FilePath -> IO ()
@@ -969,9 +969,9 @@ rotateAround rotCenter rotMat p = ((p &- rotCenter) .* rotMat) &+ rotCenter
 
 
 rotatePlaneAround :: Vec3 -> Mat3 -> Plane -> Plane
-rotatePlaneAround rotCenter rotMat p@Plane{ planeBounds = oldBounds, planeEq = oldEq }
-  = p{ planeBounds = V.map (rotateAround rotCenter rotMat) oldBounds
-     , planeEq     = rotatePlaneEq rotMat oldEq }
+rotatePlaneAround rotCenter rotMat p@Plane{ planeEq = oldEq, planeBounds = oldBounds }
+  = p{ planeEq     = rotatePlaneEq rotMat oldEq
+     , planeBounds = V.map (rotateAround rotCenter rotMat) oldBounds }
 
 
 rotatePlane :: Mat3 -> Plane -> Plane
@@ -1053,9 +1053,9 @@ translatePlaneEq off (PlaneEq n d) = PlaneEq n d'
 
 
 translatePlane :: Vec3 -> Plane -> Plane
-translatePlane off p@Plane{ planeBounds = oldBounds, planeEq = oldEq }
-  = p{ planeBounds = V.map (off &+) oldBounds
-     , planeEq     = translatePlaneEq off oldEq }
+translatePlane off p@Plane{ planeEq = oldEq, planeBounds = oldBounds }
+  = p{ planeEq     = translatePlaneEq off oldEq
+     , planeBounds = V.map (off &+) oldBounds }
 
 
 translateCloud :: Vec3 -> Cloud -> Cloud
@@ -1114,9 +1114,9 @@ devSetup state = do
   i1 <- genID state
   i2 <- genID state
   i3 <- genID state
-  addPlane state (Plane i1 (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 0 5 5, Vec3 0 0 5]) (Color3 1 0 0) (PlaneEq (Vec3 1 0 0) 0))
-  addPlane state (Plane i2 (V.fromList [Vec3 0 0 0, Vec3 5 0 0, Vec3 5 0 5, Vec3 0 0 5]) (Color3 0 1 0) (PlaneEq (Vec3 0 1 0) 0))
-  addPlane state (Plane i3 (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 5 5 0, Vec3 5 0 0]) (Color3 0 0 1) (PlaneEq (Vec3 0 0 1) 0))
+  addPlane state (Plane i1 (PlaneEq (Vec3 1 0 0) 0) (Color3 1 0 0) (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 0 5 5, Vec3 0 0 5]))
+  addPlane state (Plane i2 (PlaneEq (Vec3 0 1 0) 0) (Color3 0 1 0) (V.fromList [Vec3 0 0 0, Vec3 5 0 0, Vec3 5 0 5, Vec3 0 0 5]))
+  addPlane state (Plane i3 (PlaneEq (Vec3 0 0 1) 0) (Color3 0 0 1) (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 5 5 0, Vec3 5 0 0]))
 
   r <- loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
   changeRoom state (roomID r) (translateRoom (Vec3 10 0 0))
