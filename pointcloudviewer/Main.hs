@@ -309,6 +309,10 @@ c2i :: CInt -> Int
 c2i = fromIntegral
 
 
+toRad :: Float -> Float
+toRad d = d / 180 * pi
+
+
 -- |Draws the objects to show
 drawObjects :: State -> IO ()
 drawObjects state@State{ transient = TransientState{ sPickingMode } } = do
