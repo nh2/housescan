@@ -591,7 +591,6 @@ input state (Char '\r') Down _ _ = addDevicePointCloud state
 input state (Char 'm') Down _ _ = addCornerPoint state
 input state (Char 'r') Down _ _ = rotateSelectedPlanes state
 input state (Char 'l') Down _ _ = devSetup state
-input _ (SpecialKey KeyF5) Down _ _ = restart
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
 
@@ -735,25 +734,31 @@ mainState state@State{..} = do
     f
 
 
+-- | For debugging / ghci only.
 getState :: IO State
 getState = lookupStore 0 >>= \case
   Just store -> readStore store
-  Nothing    -> restart >> getState
+  Nothing    -> error "state not available; call restart first"
 
 
+-- | For debugging / ghci only.
 run :: (State -> IO a) -> IO a
 run f = getState >>= f
 
 
 -- For restarting the program in GHCI while keeping the `State` intact.
-restart :: IO ()
-restart = do
+restart :: (State -> IO ()) -> IO ()
+restart mainStateFun = do
+  -- Note: We have to pass in the `mainState` function from the global
+  --       ghci scope as `mainStateFun` instead of just calling the
+  --       `mainState` already visible from here - that would call the
+  --       old `mainState`, not the freshly loaded one.
   lookupStore 0 >>= \case
     Nothing -> do
       putStrLn "restart: starting for first time"
       state <- createState
       _ <- newStore state
-      void $ forkIO (mainState state)
+      void $ forkIO (mainStateFun state)
     Just store -> do
       putStrLn "restart: having existing store"
       oldState <- readStore store
@@ -772,9 +777,9 @@ restart = do
         True  -> do -- Ask the GL loop running on the old state to
                     -- restart for us.
                     sRestartRequested oldState $= True
-                    sRestartFunction oldState $= mainState newState
+                    sRestartFunction oldState $= mainStateFun newState
                     -- TODO We should also deallocate all BufferObjects.
-        False -> void $ forkIO $ mainState newState
+        False -> void $ forkIO $ mainStateFun newState
 
 
 getRandomColor :: IO (Color3 GLfloat)
