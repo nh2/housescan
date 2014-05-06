@@ -883,8 +883,7 @@ planeEqsFromFile file = do
                      `sepBy1'` endOfLine
   parseOnly planesParser <$> BS.readFile file >>= \case
     Left err -> error $ "Could not load planes: " ++ show err
-    Right planes -> do print planes
-                       return planes
+    Right planes -> return planes
 
 
 planesFromDir :: State -> FilePath -> IO [Plane]
