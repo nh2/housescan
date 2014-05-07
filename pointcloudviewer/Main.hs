@@ -1097,17 +1097,7 @@ rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
       rooms <- Map.elems <$> get sRooms
       case findRoomContainingPlane rooms pid1 of
         Just oldRoom@Room{ roomID = i } -> do
-          let
-              -- Make all plane normals inward facing
-              roomCenter = cloudMean (roomCloud oldRoom)
-              makeInwardFacing pointOnPlane (PlaneEq n d)
-                = let inwardVec = roomCenter - pointOnPlane
-                      pointsInward = inwardVec `dotprod` fromNormal n > 0
-                   in if pointsInward then PlaneEq n d
-                                      else PlaneEq (flipNormal n) (-d)
-
-              -- TODO use one point on plane instead of planeMean
-              rot = rotationBetweenPlaneEqs (makeInwardFacing (planeMean p1) (planeEq p1)) (planeEq p2)
+          let rot = rotationBetweenPlaneEqs (planeEq p1) (planeEq p2)
 
           let room = rotateRoom rot oldRoom
               cloud = roomCloud room
@@ -1182,7 +1172,16 @@ loadRoom state@State{ transient = TransientState{ sRooms } } dir = do
   cloud <- cloudFromFile state (dir </> "cloud_downsampled.pcd")
   addPointCloud state cloud
 
-  planes <- planesFromDir state dir
+  -- Make all plane normals inward facing
+  let roomCenter = cloudMean cloud
+      makeInwardFacing p@Plane{ planeEq = PlaneEq n d }
+        = p{ planeEq = let inwardVec = roomCenter - planeMean p -- TODO use one point on plane instead of planeMean
+                           pointsInward = inwardVec `dotprod` fromNormal n > 0
+                        in if pointsInward then PlaneEq n d
+                                           else PlaneEq (flipNormal n) (-d)
+           }
+
+  planes <- map makeInwardFacing <$> planesFromDir state dir
 
   i <- genID state
   let room = Room i planes cloud []
