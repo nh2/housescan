@@ -812,8 +812,8 @@ restart mainStateFun = do
 
       -- Only store an empty transient state so that we can't access
       -- things that cannot survive a reload (like GPU buffers).
-      emptytTransientState <- createTransientState
-      let newState = oldState{ transient = emptytTransientState }
+      emptyTransientState <- createTransientState
+      let newState = oldState{ transient = emptyTransientState }
 
       deleteStore store
       _ <- newStore newState
