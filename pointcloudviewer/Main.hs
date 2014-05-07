@@ -21,6 +21,7 @@ import           Data.Typeable
 import qualified Data.Packed.Matrix as Matrix
 import           Data.Packed.Matrix ((><))
 import qualified Data.Packed.Vector as HmatrixVec
+import qualified Data.Vect.Double as Vect.Double
 import           Data.Vect.Float hiding (Vector)
 import           Data.Vect.Float.Instances ()
 import           Data.Vector.Storable (Vector)
@@ -43,6 +44,8 @@ import           System.FilePath ((</>))
 import           System.Random (randomRIO)
 import           System.SelfRestart (forkSelfRestartExePollWithAction)
 import           System.IO (hPutStrLn, stderr)
+
+import           FitCuboidBFGS hiding (main)
 import           HoniHelper (takeDepthSnapshot)
 
 -- Things needed to `show` the Generic representation of our `State`,
@@ -432,13 +435,27 @@ drawPointClouds State{ transient = TransientState{ sAllocatedClouds } } = do
 
 drawRoomCorners :: State -> IO ()
 drawRoomCorners State{ transient = TransientState{ sRooms } } = do
-  roomCorners <- concatMap roomCorners . Map.elems <$> get sRooms
+  rooms <- Map.elems <$> get sRooms
 
   color red -- draw all corners in this color
 
   withVar pointSize 8.0 $ do
     renderPrimitive Points $ do
-      forM_ roomCorners vertexVec3
+      forM_ rooms $ \Room{ roomCorners } -> do
+        if (length roomCorners /= 8)
+         then
+          forM_ roomCorners vertexVec3
+         else
+          do
+            let [a,b,c,d,e,f,g,h] = roomCorners
+            color3 0.3 0.6 0.3 >> vertexVec3 a
+            color3 0 0 1 >> vertexVec3 b
+            color3 0 1 0 >> vertexVec3 c
+            color3 0 1 1 >> vertexVec3 d
+            color3 1 0 0 >> vertexVec3 e
+            color3 1 0 1 >> vertexVec3 f
+            color3 1 1 0 >> vertexVec3 g
+            color3 1 1 1 >> vertexVec3 h
 
 
 drawPlanes :: State -> IO ()
@@ -670,6 +687,7 @@ input state (Char ']') Down _ _ = changeFps state succ
 input state (Char 'p') Down _ _ = addRandomPoints state
 input state (Char '\r') Down _ _ = addDevicePointCloud state
 input state (Char 'm') Down _ _ = addCornerPoint state
+input state (Char 'f') Down _ _ = fitCuboidToRoom state
 input state (Char 'r') Down _ _ = rotateSelectedPlanes state
 input state (Char 'l') Down _ _ = devSetup state
 input state (Char 'd') Down _ _ = sDisplayPlanes state $~ not
@@ -1293,6 +1311,64 @@ addPlane State{ transient = TransientState{ sPlanes } } p@Plane{ planeID = i } =
   sPlanes $~ (Map.insert i p)
 
 
+fitCuboidToRoom :: State -> IO ()
+fitCuboidToRoom state@State{ transient = TransientState{ sSelectedRoom, sRooms } } = do
+  get sSelectedRoom >>= \case
+    Nothing                          -> putStrLn "no room selected"
+    Just Room{ roomID, roomCorners } -> do
+      putStrLn $ "fitting cuboid to room " ++ show roomID
+
+      if length roomCorners < 8
+        then putStrLn "not enough room corners; need 8"
+        else do
+          putStrLn $ "Room corners: " ++ show roomCorners
+
+          let points = map toDoubleVec roomCorners
+              -- (params, steps, err, solution_path) = fitCuboid points
+              (params, steps, err, solution_path) = fitCuboidFromCenterFirst points
+              -- (params, steps, err, solution_path) = fitCuboidFromCenter points
+
+              cuboid = cuboidFromParams params
+
+          putStrLn $ "fit cuboid in " ++ show steps ++ " steps, RMSE: " ++ show (sqrt err)
+          print ("cuboid", cuboid)
+          changeRoom state roomID (\r -> r{ roomCorners = map toFloatVec cuboid })
+
+          -- Fitting optimisation animation
+          -- void $ forkIO $ do
+          --   i <- genID state
+          --   emptyCloud <- newEmptyCloud state
+          --   let cornerRoom = Room i [] emptyCloud []
+          --   sRooms $~ Map.insert i cornerRoom
+
+          --   forM_ (Matrix.toRows solution_path) $ \pathEntry -> do
+          --     print pathEntry
+          --     let listParams = drop 3 $ HmatrixVec.toList pathEntry
+          --     -- let ps = map toFloatVec $ cuboidFromParams listParams
+
+          --     let Vec3 x y z = pointMean (V.fromList roomCorners)
+          --     let ps = map toFloatVec $ cuboidFromParams ([realToFrac x, realToFrac y, realToFrac z] ++ listParams)
+
+          --     print (length ps)
+
+          --     changeRoom state i (\r -> r{ roomCorners = ps })
+
+          --     threadDelay 500000
+
+
+toFloatVec :: Vect.Double.Vec3 -> Vec3
+toFloatVec (Vect.Double.Vec3 a b c) = Vec3 (realToFrac a) (realToFrac b) (realToFrac c)
+
+toDoubleVec :: Vec3 -> Vect.Double.Vec3
+toDoubleVec (Vec3 a b c) = Vect.Double.Vec3 (realToFrac a) (realToFrac b) (realToFrac c)
+
+
+newEmptyCloud :: State -> IO Cloud
+newEmptyCloud state = do
+  i <- genID state
+  return $ Cloud i (OneColor red) (V.empty)
+
+
 devSetup :: State -> IO ()
 devSetup state = do
   -- Coord planes
@@ -1304,8 +1380,18 @@ devSetup state = do
   addPlane state (Plane i3 (PlaneEq (mkNormal $ Vec3 0 0 1) 0) (Color3 0 0 1) (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 5 5 0, Vec3 5 0 0]))
 
   r <- loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
-  changeRoom state (roomID r) (translateRoom (Vec3 10 0 0))
-  void $ loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
+  -- changeRoom state (roomID r) (translateRoom (Vec3 10 0 0))
+  changeRoom state (roomID r) (\x -> x{ roomCorners =
+    [ Vec3 4.136416 4.5450497 1.154068
+    , Vec3 4.4101005 1.8874655 0.5908974
+    , Vec3 0.73565805 1.3998803 0.92806464
+    , Vec3 0.37607464 4.0126534 1.4924438
+    , Vec3 0.4631185 3.2685678 4.81695
+    , Vec3 0.81076735 0.73979616 4.355524
+    , Vec3 4.833117 1.258113 4.0655427
+    , Vec3 4.5571914 3.856357 4.53201
+    ] })
+  -- void $ loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
 
 
 -- | For debugging / ghci only.
