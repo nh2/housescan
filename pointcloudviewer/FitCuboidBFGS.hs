@@ -61,10 +61,8 @@ errfun ps params = sum [ normsqr ( p &- e ) | (p,e) <- zip ps est ]
 
 
 cuboidFromParams :: [Double] -> Cuboid
--- cuboidFromParams [x,y,z,a,b,c, r1,r2,r3,theta] = ps
-cuboidFromParams [x,y,z,a,b,c, q1,q2,q3,q4] = ps
+cuboidFromParams [x,y,z, a,b,c, q1,q2,q3,q4] = ps
   where
-    -- rotMat = rotMatrix3 (Vec3 r1 r2 r3) (toRad theta)
     rotMat = fromOrtho (rightOrthoU (mkU (Vec4 q1 q2 q3 q4)))
     ps = map (.* rotMat) $
            [ Vec3 (x  ) (y  ) (z  )
