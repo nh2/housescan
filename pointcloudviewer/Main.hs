@@ -1,4 +1,5 @@
 {-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase, MultiWayIf, ScopedTypeVariables #-}
+{-# LANGUAGE DeriveGeneric, StandaloneDeriving, FlexibleContexts, TypeOperators, DeriveDataTypeable #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Main where
@@ -16,6 +17,7 @@ import qualified Data.Map as Map
 import           Data.Int (Int64)
 import           Data.List (find, intercalate)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
+import           Data.Typeable
 import qualified Data.Packed.Matrix as Matrix
 import           Data.Packed.Matrix ((><))
 import qualified Data.Packed.Vector as HmatrixVec
@@ -28,7 +30,8 @@ import           Foreign.C.Types (CInt)
 import           Foreign.Marshal.Alloc (alloca)
 import           Foreign.Ptr (Ptr, nullPtr)
 import           Foreign.Storable (peek)
-import           Foreign.Store (newStore, lookupStore, readStore, deleteStore)
+import           Foreign.Store (Store(..), newStore, lookupStore, readStore, deleteStore)
+import           GHC.Generics
 import           Graphics.GLUtil
 import           Graphics.UI.GLUT hiding (Plane, Normal3)
 import           Linear (V3(..))
@@ -41,6 +44,22 @@ import           System.Random (randomRIO)
 import           System.SelfRestart (forkSelfRestartExePollWithAction)
 import           System.IO (hPutStrLn, stderr)
 import           HoniHelper (takeDepthSnapshot)
+
+-- Things needed to `show` the Generic representation of our `State`,
+-- which we use to check if the State type changed when doing hot code
+-- reloading in in-place restarts in ghci.
+deriving instance Show (V1 p)
+deriving instance Show (U1 p)
+deriving instance (Show c) => Show (K1 i c p)
+deriving instance Show (f p) => Show (M1 i c f p)
+deriving instance (Show (f p), Show (g p)) => Show ((f :*:g) p)
+deriving instance (Show (f p), Show (g p)) => Show ((f :+:g) p)
+deriving instance Show D
+deriving instance Show C
+deriving instance Show S
+
+instance (Typeable a) => Show (IORef a) where
+  show x = "IORef " ++ show (typeOf x)
 
 
 -- Orphan instance so that we can derive Ord
@@ -61,10 +80,10 @@ data Cloud = Cloud
   { cloudID :: !ID
   , cloudColor :: !CloudColor -- TODO maybe clean this interface up
   , cloudPoints :: Vector Vec3
-  } deriving (Eq, Ord, Show)
+  } deriving (Eq, Ord, Show, Typeable)
 
 data DragMode = Rotate | Translate
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Typeable)
 
 
 class ShortShow a where
@@ -139,7 +158,7 @@ data State
           , sDebugProjectPlanePointsToEq :: IORef Bool
           -- Transient state
           , transient :: TransientState
-          }
+          } deriving (Generic)
 
 data TransientState
   = TransientState { sNextID :: IORef ID
@@ -149,6 +168,9 @@ data TransientState
                    , sSelectedPlanes :: IORef [Plane]
                    , sRooms :: IORef (Map ID Room)
                    }
+
+instance Show TransientState where
+  show _ = "TransientState"
 
 
 data Plane = Plane
@@ -783,7 +805,7 @@ mainState state@State{..} = do
 
 -- | For debugging / ghci only.
 getState :: IO State
-getState = lookupStore 0 >>= \case
+getState = lookupStore _STORE_STATE >>= \case
   Just store -> readStore store
   Nothing    -> error "state not available; call restart first"
 
@@ -793,6 +815,12 @@ run :: (State -> IO a) -> IO a
 run f = getState >>= f
 
 
+-- Store IDs for Foreign.Store
+_STORE_STATE, _STORE_STATE_TYPE_STRING :: Word32
+_STORE_STATE = 0
+_STORE_STATE_TYPE_STRING = 1
+
+
 -- For restarting the program in GHCI while keeping the `State` intact.
 restart :: (State -> IO ()) -> IO ()
 restart mainStateFun = do
@@ -800,14 +828,47 @@ restart mainStateFun = do
   --       ghci scope as `mainStateFun` instead of just calling the
   --       `mainState` already visible from here - that would call the
   --       old `mainState`, not the freshly loaded one.
-  lookupStore 0 >>= \case
+  lookupStore _STORE_STATE >>= \case
     Nothing -> do
       putStrLn "restart: starting for first time"
       state <- createState
-      _ <- newStore state
+
+      -- Store the state
+      newStore state >>= \(Store i) -> when (i /= _STORE_STATE) $
+        error "state store has bad store id"
+
+      -- Store the type representation string of the state.
+      -- This way we can detect whether the state changed when doing hot code
+      -- reloading in in-place restarts in ghci.
+      -- Using Generics, this really works on the *structure* of the `State`
+      -- type, so hot code reloading even works when the name of a field in
+      -- the `State` record changes!
+      newStore (show $ from state) >>= \(Store i) -> when (i /= _STORE_STATE_TYPE_STRING) $
+        error "state type representation string store has bad store id"
+
       void $ forkIO (mainStateFun state)
+
     Just store -> do
       putStrLn "restart: having existing store"
+
+      -- Check state type. If it changed, abort reloading
+      -- (otherwise we get a segfault since the memory layout changed).
+      lookupStore _STORE_STATE_TYPE_STRING >>= \case
+        Nothing -> error "restart: State type representation string missing"
+        Just stateTypeStore -> do
+          stateTypeString <- readStore stateTypeStore
+          tmpState <- createState -- something we can compare with
+          -- TODO This might fail to reload even if the types are the same
+          --      if we have e.g. an Either in our state:
+          --      Flipping it from Left to Right will change the type string.
+          --      For now this is fine since our State only has IORefs.
+          when (stateTypeString /= show (from tmpState)) $
+            -- `error` is fine here since this can only be called from
+            -- ghci anyway, and `error` won't terminate ghci.
+            error "cannot restart in-place: the State type changed"
+
+      -- All clear, state is safe to load.
+
       oldState <- readStore store
 
       -- Only store an empty transient state so that we can't access
