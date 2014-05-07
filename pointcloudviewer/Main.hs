@@ -437,16 +437,14 @@ drawRoomCorners :: State -> IO ()
 drawRoomCorners State{ transient = TransientState{ sRooms } } = do
   rooms <- Map.elems <$> get sRooms
 
-  color red -- draw all corners in this color
-
   withVar pointSize 8.0 $ do
     renderPrimitive Points $ do
       forM_ rooms $ \Room{ roomCorners } -> do
         if (length roomCorners /= 8)
-         then
-          forM_ roomCorners vertexVec3
-         else
-          do
+          then do
+            color red
+            forM_ roomCorners vertexVec3
+          else do
             let [a,b,c,d,e,f,g,h] = roomCorners
             color3 0.3 0.6 0.3 >> vertexVec3 a
             color3 0 0 1 >> vertexVec3 b
@@ -1312,7 +1310,7 @@ addPlane State{ transient = TransientState{ sPlanes } } p@Plane{ planeID = i } =
 
 
 fitCuboidToRoom :: State -> IO ()
-fitCuboidToRoom state@State{ transient = TransientState{ sSelectedRoom, sRooms } } = do
+fitCuboidToRoom state@State{ transient = TransientState{ sSelectedRoom } } = do
   get sSelectedRoom >>= \case
     Nothing                          -> putStrLn "no room selected"
     Just Room{ roomID, roomCorners } -> do
@@ -1324,36 +1322,12 @@ fitCuboidToRoom state@State{ transient = TransientState{ sSelectedRoom, sRooms }
           putStrLn $ "Room corners: " ++ show roomCorners
 
           let points = map toDoubleVec roomCorners
-              -- (params, steps, err, solution_path) = fitCuboid points
-              (params, steps, err, solution_path) = fitCuboidFromCenterFirst points
-              -- (params, steps, err, solution_path) = fitCuboidFromCenter points
+              (params, steps, err, _) = fitCuboidFromCenterFirst points
 
               cuboid = cuboidFromParams params
 
           putStrLn $ "fit cuboid in " ++ show steps ++ " steps, RMSE: " ++ show (sqrt err)
-          print ("cuboid", cuboid)
           changeRoom state roomID (\r -> r{ roomCorners = map toFloatVec cuboid })
-
-          -- Fitting optimisation animation
-          -- void $ forkIO $ do
-          --   i <- genID state
-          --   emptyCloud <- newEmptyCloud state
-          --   let cornerRoom = Room i [] emptyCloud []
-          --   sRooms $~ Map.insert i cornerRoom
-
-          --   forM_ (Matrix.toRows solution_path) $ \pathEntry -> do
-          --     print pathEntry
-          --     let listParams = drop 3 $ HmatrixVec.toList pathEntry
-          --     -- let ps = map toFloatVec $ cuboidFromParams listParams
-
-          --     let Vec3 x y z = pointMean (V.fromList roomCorners)
-          --     let ps = map toFloatVec $ cuboidFromParams ([realToFrac x, realToFrac y, realToFrac z] ++ listParams)
-
-          --     print (length ps)
-
-          --     changeRoom state i (\r -> r{ roomCorners = ps })
-
-          --     threadDelay 500000
 
 
 toFloatVec :: Vect.Double.Vec3 -> Vec3
