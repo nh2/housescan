@@ -156,6 +156,7 @@ data State
           , sDebugPickingTiming :: IORef Bool
           -- Displaying options
           , sDisplayPlanes :: IORef Bool
+          , sDisplayClouds :: IORef Bool
           -- Visual debugging
           , sDebugProjectPlanePointsToEq :: IORef Bool
           -- Transient state
@@ -364,7 +365,7 @@ toRad d = d / 180 * pi
 
 -- |Draws the objects to show
 drawObjects :: State -> IO ()
-drawObjects state@State{ sDisplayPlanes, transient = TransientState{ sPickingMode } } = do
+drawObjects state@State{ sDisplayPlanes, sDisplayClouds, transient = TransientState{ sPickingMode } } = do
   picking <- get sPickingMode
 
   -- Objects must only be drawn in picking mode when they are colour picking
@@ -373,7 +374,7 @@ drawObjects state@State{ sDisplayPlanes, transient = TransientState{ sPickingMod
 
   when (not picking) $ drawReferenceSystem
 
-  when (not picking) $ drawPointClouds state
+  when (not picking) $ on sDisplayClouds $ drawPointClouds state
 
   when (not picking) $ drawRoomCorners state
 
@@ -672,6 +673,7 @@ input state (Char 'm') Down _ _ = addCornerPoint state
 input state (Char 'r') Down _ _ = rotateSelectedPlanes state
 input state (Char 'l') Down _ _ = devSetup state
 input state (Char 'd') Down _ _ = sDisplayPlanes state $~ not
+input state (Char 'c') Down _ _ = sDisplayClouds state $~ not
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
 
@@ -739,6 +741,7 @@ createState = do
   sDebugPickingDrawVisible <- newIORef False
   sDebugPickingTiming      <- newIORef False
   sDisplayPlanes    <- newIORef True
+  sDisplayClouds    <- newIORef True
   sDebugProjectPlanePointsToEq <- newIORef True -- It is a good idea to keep this on, always
   transient         <- createTransientState
 
