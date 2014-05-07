@@ -664,6 +664,7 @@ objectClick State{ transient = TransientState{..}, ..} (Just i) = do
 
   for_ (find (\Plane{ planeID } -> planeID == i) allPlanes) $ \p -> do
     putStrLn $ "Plane: " ++ show (planeID p)
+    putStrLn $ "PlaneEq: " ++ show (planeEq p)
     when (p `notElem` selected) $ do -- could compare by ID only
       sSelectedPlanes $~ (p:)
 
@@ -1099,7 +1100,7 @@ rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
           let room = rotateRoom rot oldRoom
               cloud = roomCloud room
 
-          putStrLn $ "Rotating room"
+          putStrLn $ "Rotating room by " ++ show rot
           sRooms $~ Map.insert i room
           updatePointCloud state cloud
 
