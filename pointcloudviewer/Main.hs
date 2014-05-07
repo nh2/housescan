@@ -931,6 +931,10 @@ mkPlaneEqABCD :: Float -> Float -> Float -> Float -> PlaneEq
 mkPlaneEqABCD a b c d = mkPlaneEq (Vec3 a b c) d
 
 
+flipPlaneEq :: PlaneEq -> PlaneEq
+flipPlaneEq (PlaneEq n d) = PlaneEq (flipNormal n) (-d)
+
+
 signedDistanceToPlaneEq :: PlaneEq -> Vec3 -> Float
 signedDistanceToPlaneEq (PlaneEq n d) p = fromNormal n `dotprod` p - d
 
@@ -1095,7 +1099,7 @@ rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
       rooms <- Map.elems <$> get sRooms
       case findRoomContainingPlane rooms pid1 of
         Just oldRoom@Room{ roomID = i } -> do
-          let rot = rotationBetweenPlaneEqs (planeEq p1) (planeEq p2)
+          let rot = rotationBetweenPlaneEqs (planeEq p1) (flipPlaneEq $ planeEq p2)
 
           let room = rotateRoom rot oldRoom
               cloud = roomCloud room
