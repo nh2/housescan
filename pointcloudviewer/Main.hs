@@ -698,7 +698,7 @@ createState = do
   sUnderCursor      <- newIORef Nothing
   sDebugPickingDrawVisible <- newIORef False
   sDebugPickingTiming      <- newIORef False
-  sDebugProjectPlanePointsToEq <- newIORef False
+  sDebugProjectPlanePointsToEq <- newIORef True -- It is a good idea to keep this on, always
   transient         <- createTransientState
 
   return State{..} -- RecordWildCards for initialisation convenience
