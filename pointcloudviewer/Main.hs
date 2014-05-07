@@ -219,6 +219,15 @@ getTimeUs :: IO Int64
 getTimeUs = round . (* 1000000.0) <$> getPOSIXTime
 
 
+withVar :: StateVar a -> a -> IO b -> IO b
+withVar var val f = do
+  before <- get var
+  var $= val
+  x <- f
+  var $= before
+  return x
+
+
 withDisabled :: [StateVar Capability] -> IO b -> IO b
 withDisabled vars f = do
   befores <- mapM get vars
@@ -425,8 +434,9 @@ drawRoomCorners State{ transient = TransientState{ sRooms } } = do
 
   color red -- draw all corners in this color
 
-  renderPrimitive Points $ do
-    forM_ roomCorners vertexVec3
+  withVar pointSize 8.0 $ do
+    renderPrimitive Points $ do
+      forM_ roomCorners vertexVec3
 
 
 drawPlanes :: State -> IO ()
