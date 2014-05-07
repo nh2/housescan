@@ -9,17 +9,15 @@ import Data.Packed.Matrix
 import Numeric.GSL.Minimization
 import Data.Vect.Double hiding (Matrix)
 import Data.Vect.Double.Util.Quaternion
-import Data.Vector ((!))
-import qualified Data.Vector as V
 -- import Graphics.Plot (mplot)
 import Test.QuickCheck
 -- import Text.Printf
 
 
-type Cuboid = V.Vector Vec3
+type Cuboid = [Vec3]
 
 example_points :: Cuboid
-example_points = V.fromList $ map (.* rotMat) $
+example_points = map (.* rotMat) $
   [ Vec3 0 0 0
   , Vec3 0 0 1
   , Vec3 0 1 0
@@ -42,7 +40,7 @@ toRad d = d / 180 * pi
 
 errfun :: Cuboid -> [Double] -> Double
 -- errfun p [x,y,z,a,b,c, r1,r2,r3,theta]
-errfun p params = sum [ normsqr ( (p!i) &- (est!i) ) | i <- [0..7] ]
+errfun ps params = sum [ normsqr ( p &- e ) | (p,e) <- zip ps est ]
   -- = normsqr (  (p!0) &- rot (Vec3 (x  ) (y  ) (z  ))  )
   -- + normsqr (  (p!1) &- rot (Vec3 (x  ) (y  ) (z+c))  )
   -- + normsqr (  (p!2) &- rot (Vec3 (x  ) (y+b) (z  ))  )
@@ -63,7 +61,7 @@ cuboidFromParams [x,y,z,a,b,c, q1,q2,q3,q4] = ps
   where
     -- rotMat = rotMatrix3 (Vec3 r1 r2 r3) (toRad theta)
     rotMat = fromOrtho (rightOrthoU (mkU (Vec4 q1 q2 q3 q4)))
-    ps = V.map (.* rotMat) $ V.fromList
+    ps = map (.* rotMat) $
            [ Vec3 (x  ) (y  ) (z  )
            , Vec3 (x  ) (y  ) (z+c)
            , Vec3 (x  ) (y+b) (z  )
@@ -85,7 +83,7 @@ cuboidGen = do
   c <- (* scale) <$> choose (1, 10)
   -- [x,y,z] <- vectorOf 3 (choose (0.001, 1000))
   let [x,y,z] = [0,0,0]
-  let ps = V.fromList
+  let ps =
         [ Vec3 (x  ) (y  ) (z  )
         , Vec3 (x  ) (y  ) (z+c)
         , Vec3 (x  ) (y+b) (z  )
@@ -99,7 +97,7 @@ cuboidGen = do
   theta <- choose (0, 360)
   let rotAxis = Vec3 r1 r2 r3
       rotMat = rotMatrix3 rotAxis (toRad theta)
-      cuboid = V.map (.* rotMat) ps
+      cuboid = map (.* rotMat) ps
       [a',b',c'] = sort [a,b,c]
   return $ (cuboid, ((a',b',c'), rotAxis, theta))
 
@@ -113,7 +111,7 @@ fitCuboid points = (solution, rows path, path)
     -- initial = [0.1,0.1,0.1, 0.1,0.1,0.1, 0.1,0.1,0.1, 10]
     (a,b,c) = guessDims points
     -- initial = [0.1,0.1,0.1, a,b,c, 0.1,0.1,0.1, 10]
-    Vec3 x y z = points!0 -- TODO changing this makes a difference in how well it converges!?
+    Vec3 x y z = points!!0 -- TODO changing this makes a difference in how well it converges!?
     initial = [x,y,z, a,b,c, 0.1,0.1,0.1, 0.1]
     -- initialSearchBox = [0.01,0.01,0.01,0.01,0.01,0.01, 0.1,0.1,0.1,0.1] -- step_size in GSL
     initialSearchBox = [0.01,0.01,0.01, a/10,a/10,a/10, 0.1,0.1,0.1,0.1] -- step_size in GSL
@@ -133,7 +131,7 @@ vecmap f (Vec3 a b c) = Vec3 (f a) (f b) (f c)
 guessDims :: Cuboid -> (Double, Double, Double)
 guessDims p = (a, b, c)
   where
-    f:rest = V.toList p
+    f:rest = p
     [a,b,_,_,_,_,d] = sort $ map (distance f) rest
     c = sqrt (d*d - a*a - b*b)
 
@@ -159,7 +157,7 @@ main = do
       let (sol, steps, _) = fitCuboid c
       print (errfun c sol, steps)
       when (errfun c sol > 1) $ do
-        putStrLn $ "points:\n" ++ show (V.map (vecmap nice) c)
+        putStrLn $ "points:\n" ++ show (map (vecmap nice) c)
         -- putStrLn $ "bad sol:\n" ++ show (map nice sol)
-        putStrLn $ "wrong points:\n" ++ show (V.map (vecmap nice) (cuboidFromParams sol))
+        putStrLn $ "wrong points:\n" ++ show (map (vecmap nice) (cuboidFromParams sol))
         putStrLn $ "abc: " ++ show abc
