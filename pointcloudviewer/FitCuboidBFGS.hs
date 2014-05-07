@@ -1,6 +1,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Main where
+module FitCuboidBFGS
+  ( Cuboid
+  , errfun
+  , cuboidFromParams
+  , fitCuboid
+  ) where
 
 import Control.Applicative
 import Control.Monad
@@ -116,6 +121,11 @@ fitCuboid points = (solution, rows path, path)
     -- initialSearchBox = [0.01,0.01,0.01,0.01,0.01,0.01, 0.1,0.1,0.1,0.1] -- step_size in GSL
     initialSearchBox = [0.01,0.01,0.01, a/10,a/10,a/10, 0.1,0.1,0.1,0.1] -- step_size in GSL
     (solution, path) = minimize NMSimplex2 1e-8 maxIt initial (errfun points) initialSearchBox
+
+
+fitCuboidError :: [Vec3] -> (Double, Int)
+fitCuboidError ps = let (params, steps, _) = fitCuboid ps
+                     in (errfun ps params, steps)
 
 
 nice :: Double -> Double
