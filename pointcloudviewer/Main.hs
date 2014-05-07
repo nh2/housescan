@@ -169,6 +169,7 @@ data TransientState
                    , sPlanes :: IORef (Map ID Plane)
                    , sSelectedPlanes :: IORef [Plane]
                    , sRooms :: IORef (Map ID Room)
+                   , sSelectedRoom :: IORef (Maybe Room)
                    }
 
 instance Show TransientState where
@@ -694,8 +695,11 @@ objectClick State{ transient = TransientState{..}, ..} (Just i) = do
 
   selected <- get sSelectedPlanes
 
-  for_ (findRoomContainingPlane rooms i) $ \r -> do
-    putStrLn $ "Room: " ++ show (roomID r)
+  case findRoomContainingPlane rooms i of
+    Nothing -> sSelectedRoom $= Nothing
+    Just r -> do
+      putStrLn $ "Room: " ++ show (roomID r)
+      sSelectedRoom $= Just r
 
   for_ (find (\Plane{ planeID } -> planeID == i) allPlanes) $ \p -> do
     putStrLn $ "Plane: " ++ show (planeID p)
@@ -749,6 +753,7 @@ createTransientState = do
   sPlanes <- newIORef Map.empty
   sSelectedPlanes <- newIORef []
   sRooms <- newIORef Map.empty
+  sSelectedRoom <- newIORef Nothing
   return TransientState{..}
 
 
