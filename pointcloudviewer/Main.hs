@@ -929,9 +929,6 @@ mkPlaneEq abc d = PlaneEq (mkNormal abc) (d / norm abc)
 mkPlaneEqABCD :: Float -> Float -> Float -> Float -> PlaneEq
 mkPlaneEqABCD a b c d = mkPlaneEq (Vec3 a b c) d
 
-mkPlaneEqABCPositiveD :: Float -> Float -> Float -> Float -> PlaneEq
-mkPlaneEqABCPositiveD a b c d = mkPlaneEqABCD a b c (-d)
-
 
 signedDistanceToPlaneEq :: PlaneEq -> Vec3 -> Float
 signedDistanceToPlaneEq (PlaneEq n d) p = fromNormal n `dotprod` p - d
@@ -947,7 +944,7 @@ planeEqsFromFile file = do
       floatS = float <* skipSpace
       -- PCL exports plane in the form `ax + by + cz + d = 0`,
       -- we need `ax + by + cz = d`.
-      planesParser = (mkPlaneEqABCPositiveD <$> floatS <*> floatS <*> floatS <*> float)
+      planesParser = (mkPlaneEqABCD <$> floatS <*> floatS <*> floatS <*> (negate <$> float))
                      `sepBy1'` endOfLine
   parseOnly planesParser <$> BS.readFile file >>= \case
     Left err -> error $ "Could not load planes: " ++ show err
