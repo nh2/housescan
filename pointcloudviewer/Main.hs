@@ -1050,7 +1050,7 @@ rotatePlaneEqAround rotCenter rotMat (PlaneEq n d) = mkPlaneEq n' d'
     n' = fromNormal n .* rotMat
     o = d *& fromNormal n
     o' = rotateAround rotCenter rotMat o
-    d' = o' `dotprod` fromNormal n -- distance from origin along normal vector
+    d' = o' `dotprod` n' -- distance from origin along NEW normal vector
 
 
 -- | Rotates a point around a rotation center.
