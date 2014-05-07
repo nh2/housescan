@@ -1093,8 +1093,11 @@ addCornerPoint state@State{ transient = TransientState{..}, ..} = do
       case [ r | pid <- map planeID [p1, p2, p3]
                , Just r <- [findRoomContainingPlane rooms pid] ] of
         [r@Room{ roomID = i },r2,r3] | roomID r2 == i && roomID r3 == i -> do
-          putStrLn $ "Merging planes of room to corner " ++ show corner
-          sRooms $~ Map.insert i r{ roomCorners = corner : roomCorners r }
+          case roomCorners r of
+            corners | length corners < 8 -> do
+              putStrLn $ "Merging planes of room to corner " ++ show corner
+              sRooms $~ Map.insert i r{ roomCorners = corner : roomCorners r }
+            _ -> putStrLn $ "Room " ++ show i ++ " already has 8 corners"
         _ -> do
           putStrLn $ "Merged planes to corner " ++ show corner
           i <- genID state
