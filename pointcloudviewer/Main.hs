@@ -1281,6 +1281,11 @@ translateRoom off room@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomC
         }
 
 
+-- Clouds recored with Kinfu clouds are always heads-up.
+rotateKinfuRoom :: Room -> Room
+rotateKinfuRoom = rotateRoom (rotMatrixX (toRad 180))
+
+
 loadRoom :: State -> FilePath -> IO Room
 loadRoom state@State{ transient = TransientState{ sRooms } } dir = do
   cloud <- cloudFromFile state (dir </> "cloud_downsampled.pcd")
@@ -1298,7 +1303,7 @@ loadRoom state@State{ transient = TransientState{ sRooms } } dir = do
   planes <- map makeInwardFacing <$> planesFromDir state dir
 
   i <- genID state
-  let room = Room i planes cloud []
+  let room = rotateKinfuRoom $ Room i planes cloud []
   sRooms $~ Map.insert i room
   putStrLn $ "Room " ++ show i ++ " loaded"
   return room
@@ -1411,14 +1416,14 @@ devSetup state = do
   r <- loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
   -- changeRoom state (roomID r) (translateRoom (Vec3 10 0 0))
   changeRoom state (roomID r) (\x -> x{ roomCorners =
-    [ Vec3 4.136416 4.5450497 1.154068
-    , Vec3 4.4101005 1.8874655 0.5908974
-    , Vec3 0.73565805 1.3998803 0.92806464
-    , Vec3 0.37607464 4.0126534 1.4924438
-    , Vec3 0.4631185 3.2685678 4.81695
-    , Vec3 0.81076735 0.73979616 4.355524
-    , Vec3 4.833117 1.258113 4.0655427
-    , Vec3 4.5571914 3.856357 4.53201
+    [ Vec3 4.136416 0.8529552 4.406994
+    , Vec3 4.4101005 3.5105393 4.9701643
+    , Vec3 0.73565805 3.9981246 4.6329975
+    , Vec3 0.37607455 1.3853515 4.068618
+    , Vec3 0.46311855 2.1294374 0.744112
+    , Vec3 0.8107674 4.658209 1.2055379
+    , Vec3 4.833117 4.139892 1.4955193
+    , Vec3 4.5571914 1.541648 1.0290517
     ] })
   -- void $ loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
 
