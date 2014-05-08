@@ -699,6 +699,7 @@ input state (Char 'r') Down _ _ = rotateSelectedPlanes state
 input state (Char '/') Down _ _ = devSetup state
 input state (Char 'd') Down _ _ = sDisplayPlanes state $~ not
 input state (Char 'p') Down _ _ = sDisplayClouds state $~ not
+input state (Char 'c') Down _ _ = clearRooms state
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
 
@@ -1400,6 +1401,12 @@ newEmptyCloud :: State -> IO Cloud
 newEmptyCloud state = do
   i <- genID state
   return $ Cloud i (OneColor red) (V.empty)
+
+
+clearRooms :: State -> IO ()
+clearRooms State{ transient = TransientState{ sRooms } } = do
+  putStrLn "Clearing"
+  sRooms $= Map.empty
 
 
 devSetup :: State -> IO ()
