@@ -1481,12 +1481,12 @@ clearRooms State{ transient = TransientState{ sRooms } } = do
 devSetup :: State -> IO ()
 devSetup state = do
   -- Coord planes
-  i1 <- genID state
-  i2 <- genID state
-  i3 <- genID state
-  addPlane state (Plane i1 (PlaneEq (mkNormal $ Vec3 1 0 0) 0) (Color3 1 0 0) (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 0 5 5, Vec3 0 0 5]))
-  addPlane state (Plane i2 (PlaneEq (mkNormal $ Vec3 0 1 0) 0) (Color3 0 1 0) (V.fromList [Vec3 0 0 0, Vec3 5 0 0, Vec3 5 0 5, Vec3 0 0 5]))
-  addPlane state (Plane i3 (PlaneEq (mkNormal $ Vec3 0 0 1) 0) (Color3 0 0 1) (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 5 5 0, Vec3 5 0 0]))
+  pid1 <- genID state
+  pid2 <- genID state
+  pid3 <- genID state
+  addPlane state (Plane pid1 (PlaneEq (mkNormal $ Vec3 1 0 0) 0) (Color3 1 0 0) (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 0 5 5, Vec3 0 0 5]))
+  addPlane state (Plane pid2 (PlaneEq (mkNormal $ Vec3 0 1 0) 0) (Color3 0 1 0) (V.fromList [Vec3 0 0 0, Vec3 5 0 0, Vec3 5 0 5, Vec3 0 0 5]))
+  addPlane state (Plane pid3 (PlaneEq (mkNormal $ Vec3 0 0 1) 0) (Color3 0 0 1) (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 5 5 0, Vec3 5 0 0]))
 
   r <- loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
   -- changeRoom state (roomID r) (translateRoom (Vec3 10 0 0))
