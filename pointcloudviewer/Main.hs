@@ -712,7 +712,7 @@ input state (Char '[') Down _ _ = changeFps state pred
 input state (Char ']') Down _ _ = changeFps state succ
 input state (Char '\r') Down _ _ = addDevicePointCloud state
 input state (Char 'm') Down _ _ = addCornerPoint state
-input state (Char 'f') Down _ _ = fitCuboidToRoom state
+input state (Char 'f') Down _ _ = fitCuboidToSelectedRoom state
 input state (Char 'r') Down _ _ = rotateSelectedPlanes state
 input state (Char 's') Down _ _ = save state
 input state (Char 'l') Down _ _ = load state
@@ -1344,34 +1344,38 @@ addPlane State{ transient = TransientState{ sPlanes } } p@Plane{ planeID = i } =
   sPlanes $~ (Map.insert i p)
 
 
-fitCuboidToRoom :: State -> IO ()
-fitCuboidToRoom state@State{ transient = TransientState{ sSelectedRoom } } = do
+fitCuboidToSelectedRoom :: State -> IO ()
+fitCuboidToSelectedRoom state@State{ transient = TransientState{ sSelectedRoom } } = do
   get sSelectedRoom >>= \case
-    Nothing                          -> putStrLn "no room selected"
-    Just Room{ roomID, roomCorners } -> do
-      putStrLn $ "fitting cuboid to room " ++ show roomID
+    Nothing -> putStrLn "no room selected"
+    Just r  -> fitCuboidToRoom state r
 
-      if length roomCorners < 8
-        then putStrLn "not enough room corners; need 8"
-        else do
-          putStrLn $ "Room corners: " ++ show roomCorners
 
-          let points = map toDoubleVec roomCorners
-              (params, steps, err, _) = fitCuboidFromCenterFirst points
+fitCuboidToRoom :: State -> Room -> IO ()
+fitCuboidToRoom state Room{ roomID, roomCorners } = do
+  putStrLn $ "fitting cuboid to room " ++ show roomID
 
-          putStrLn $ "fit cuboid in " ++ show steps ++ " steps, RMSE: " ++ show (sqrt err)
+  if length roomCorners < 8
+    then putStrLn "not enough room corners; need 8"
+    else do
+      putStrLn $ "Room corners: " ++ show roomCorners
 
-          -- Replace room planes and corners by those of the cuboid
+      let points = map toDoubleVec roomCorners
+          (params, steps, err, _) = fitCuboidFromCenterFirst points
 
-          let cuboidPoints = map toFloatVec $ cuboidFromParams params
-              [x,y,z, a,b,c, q1,q2,q3,q4] = map toFloat params
+      putStrLn $ "fit cuboid in " ++ show steps ++ " steps, RMSE: " ++ show (sqrt err)
 
-          cuboidPlanes <- makePlanesFromCuboid state cuboidPoints
-                                               (Vec3 x y z) (Vec3 a b c)
-                                               (mkU (Vec4 q1 q2 q3 q4))
+      -- Replace room planes and corners by those of the cuboid
 
-          changeRoom state roomID (\r -> r{ roomCorners = cuboidPoints
-                                          , roomPlanes  = cuboidPlanes })
+      let cuboidPoints = map toFloatVec $ cuboidFromParams params
+          [x,y,z, a,b,c, q1,q2,q3,q4] = map toFloat params
+
+      cuboidPlanes <- makePlanesFromCuboid state cuboidPoints
+                                           (Vec3 x y z) (Vec3 a b c)
+                                           (mkU (Vec4 q1 q2 q3 q4))
+
+      changeRoom state roomID (\r -> r{ roomCorners = cuboidPoints
+                                      , roomPlanes  = cuboidPlanes })
 
 
 makePlanesFromCuboid :: State -> [Vec3] -> Vec3 -> Vec3 -> UnitQuaternion -> IO [Plane]
