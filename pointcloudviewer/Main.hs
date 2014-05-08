@@ -347,7 +347,7 @@ colorPicking state@State{ transient = TransientState{..}, ..} (x, y) = do
 
     return i
 
-  on sDebugPickingDrawVisible $ do
+  on sDebugPickingTiming $ do
     timeAfter <- getPOSIXTime
     putStrLn $ "Picking took " ++ show (timeAfter - timeBefore) ++ " s"
 
