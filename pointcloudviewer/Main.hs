@@ -1329,9 +1329,13 @@ loadRoom state@State{ transient = TransientState{ sRooms } } dir = do
   return room
 
 
+getRoom :: State -> ID -> IO (Maybe Room)
+getRoom State{ transient = TransientState { sRooms } } i = Map.lookup i <$> get sRooms
+
+
 changeRoom :: State -> ID -> (Room -> Room) -> IO ()
 changeRoom state@State{ transient = TransientState { sRooms } } i f = do
-  (Map.lookup i <$> get sRooms) >>= \case
+  getRoom state i >>= \case
     Nothing -> putStrLn "no room loaded"
     Just r -> do
       let r' = f r
