@@ -420,7 +420,7 @@ drawObjects state@State{ sDisplayPlanes, sDisplayClouds, transient = TransientSt
 drawReferenceSystem :: IO ()
 drawReferenceSystem = do
 
-  displayQuad 1 1 1
+  -- displayQuad 1 1 1
 
   renderPrimitive Lines $ do
     color3 1.0 0.0 0.0
