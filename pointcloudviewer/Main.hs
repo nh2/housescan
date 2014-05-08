@@ -1230,15 +1230,11 @@ rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
       -- First check if p1 is part of a room.
       rooms <- Map.elems <$> get sRooms
       case findRoomContainingPlane rooms pid1 of
-        Just oldRoom@Room{ roomID = i } -> do
+        Just oldRoom -> do
           let rot = rotationBetweenPlaneEqs (planeEq p1) (flipPlaneEq $ planeEq p2)
 
-          let room = rotateRoom rot oldRoom
-              cloud = roomCloud room
-
           putStrLn $ "Rotating room by " ++ show rot
-          sRooms $~ Map.insert i room
-          updatePointCloud state cloud
+          updateRoom state (rotateRoom rot oldRoom)
 
         Nothing -> do
           let p1' = rotatePlane rot p1
@@ -1341,6 +1337,12 @@ changeRoom state@State{ transient = TransientState { sRooms } } i f = do
       let r' = f r
       sRooms $~ Map.insert i r'
       updatePointCloud state (roomCloud r')
+
+
+updateRoom :: State -> Room -> IO ()
+updateRoom state@State{ transient = TransientState{ sRooms } } room = do
+  sRooms $~ Map.insert (roomID room) room
+  updatePointCloud state (roomCloud room)
 
 
 addPlane :: State -> Plane -> IO ()
