@@ -6,6 +6,7 @@ module Main where
 
 import           Control.Applicative
 import           Control.Concurrent
+import           Control.Exception (assert)
 import           Control.Monad
 import           Data.Attoparsec.ByteString.Char8 (parseOnly, sepBy1', double, endOfLine, skipSpace)
 import           Data.Bits (unsafeShiftR)
@@ -15,7 +16,8 @@ import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Int (Int64)
-import           Data.List (find, intercalate)
+import           Data.List (find, intercalate, sortBy)
+import           Data.Ord (comparing)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Data.Typeable
 import qualified Data.Packed.Matrix as Matrix
@@ -24,6 +26,7 @@ import qualified Data.Packed.Vector as HmatrixVec
 import qualified Data.Vect.Double as Vect.Double
 import           Data.Vect.Float hiding (Vector)
 import           Data.Vect.Float.Instances ()
+import           Data.Vect.Float.Util.Quaternion
 import           Data.Vector.Storable (Vector)
 import qualified Data.Vector.Storable as V
 import           Data.Word
@@ -360,6 +363,13 @@ i2c = fromIntegral
 
 c2i :: CInt -> Int
 c2i = fromIntegral
+
+
+toFloat :: Double -> Float
+toFloat = realToFrac
+
+toDouble :: Float -> Double
+toDouble = realToFrac
 
 
 toRad :: Float -> Float
@@ -1324,10 +1334,55 @@ fitCuboidToRoom state@State{ transient = TransientState{ sSelectedRoom } } = do
           let points = map toDoubleVec roomCorners
               (params, steps, err, _) = fitCuboidFromCenterFirst points
 
-              cuboid = cuboidFromParams params
-
           putStrLn $ "fit cuboid in " ++ show steps ++ " steps, RMSE: " ++ show (sqrt err)
-          changeRoom state roomID (\r -> r{ roomCorners = map toFloatVec cuboid })
+
+          -- Replace room planes and corners by those of the cuboid
+
+          let cuboidPoints = map toFloatVec $ cuboidFromParams params
+              [x,y,z, a,b,c, q1,q2,q3,q4] = map toFloat params
+
+          cuboidPlanes <- makePlanesFromCuboid state cuboidPoints
+                                               (Vec3 x y z) (Vec3 a b c)
+                                               (mkU (Vec4 q1 q2 q3 q4))
+
+          changeRoom state roomID (\r -> r{ roomCorners = cuboidPoints
+                                          , roomPlanes  = cuboidPlanes })
+
+
+makePlanesFromCuboid :: State -> [Vec3] -> Vec3 -> Vec3 -> UnitQuaternion -> IO [Plane]
+makePlanesFromCuboid state cuboidPoints cuboidCenter _cuboidDims@(Vec3 a b c) rotQuat = do
+
+  px1 <- fromOriginPlane (mkPlaneEq (Vec3   1    0    0 ) (a/2))
+  px2 <- fromOriginPlane (mkPlaneEq (Vec3 (-1)   0    0 ) (a/2))
+  py1 <- fromOriginPlane (mkPlaneEq (Vec3   0    1    0 ) (b/2))
+  py2 <- fromOriginPlane (mkPlaneEq (Vec3   0  (-1)   0 ) (b/2))
+  pz1 <- fromOriginPlane (mkPlaneEq (Vec3   0    0    1 ) (c/2))
+  pz2 <- fromOriginPlane (mkPlaneEq (Vec3   0    0  (-1)) (c/2))
+
+  return [px1, px2, py1, py2, pz1, pz2]
+
+  where
+    rotMat = fromOrtho $ rightOrthoU rotQuat
+
+    -- We first construct the planes as if the room was centered at
+    -- the origin and the planes orthogonal to the axes, and then
+    -- adjust the room to the center and rotation we got from the
+    -- cuboid fitting.
+    fromOriginPlane originEq = do
+      i   <- genID state
+      col <- getRandomColor
+      let eq = translatePlaneEq cuboidCenter . rotatePlaneEqAround zero rotMat $ originEq
+
+          reorderPolygon corners = let c1:rest = corners
+                                       [c2,c3,c4] = sortBy (comparing (distance c1)) rest
+                                    in [c1,c2,c4,c3]
+          bounds =   V.fromList
+                   . (\l -> assert (length l == 4) l)
+                   . reorderPolygon
+                   . filter ((< 1e-6) . abs . signedDistanceToPlaneEq eq)
+                   $ cuboidPoints
+
+      return $ Plane i eq col bounds
 
 
 toFloatVec :: Vect.Double.Vec3 -> Vec3
