@@ -764,10 +764,10 @@ objectClick State{ transient = TransientState{..}, ..} (Just i) = do
 -- |Mouse wheel movement (sZoom)
 wheel :: State -> WheelNumber -> WheelDirection -> Position -> IO ()
 wheel State{..} _num dir _pos
-  | dir > 0   = get sZoom >>= (\x -> sZoom $= clamp (x + 0.5))
-  | otherwise = get sZoom >>= (\x -> sZoom $= clamp (x - 0.5))
+  | dir > 0   = get sZoom >>= (\x -> sZoom $= clamp (x * 1.2))
+  | otherwise = get sZoom >>= (\x -> sZoom $= clamp (x / 1.2))
   where
-    clamp x = 0.5 `max` (30.0 `min` x)
+    clamp x = 0.5 `max` (300.0 `min` x)
 
 
 -- | Creates the default state
