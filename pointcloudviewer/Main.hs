@@ -692,14 +692,13 @@ input state (MouseButton WheelUp) Down _ pos
   = wheel state 0 (-120) pos
 input state (Char '[') Down _ _ = changeFps state pred
 input state (Char ']') Down _ _ = changeFps state succ
-input state (Char 'p') Down _ _ = addRandomPoints state
 input state (Char '\r') Down _ _ = addDevicePointCloud state
 input state (Char 'm') Down _ _ = addCornerPoint state
 input state (Char 'f') Down _ _ = fitCuboidToRoom state
 input state (Char 'r') Down _ _ = rotateSelectedPlanes state
-input state (Char 'l') Down _ _ = devSetup state
+input state (Char '/') Down _ _ = devSetup state
 input state (Char 'd') Down _ _ = sDisplayPlanes state $~ not
-input state (Char 'c') Down _ _ = sDisplayClouds state $~ not
+input state (Char 'p') Down _ _ = sDisplayClouds state $~ not
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
 
