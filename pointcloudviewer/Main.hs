@@ -1,4 +1,4 @@
-{-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase, MultiWayIf, ScopedTypeVariables #-}
+{-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase, MultiWayIf, ScopedTypeVariables, TypeSynonymInstances #-}
 {-# LANGUAGE DeriveGeneric, StandaloneDeriving, FlexibleContexts, TypeOperators, DeriveDataTypeable #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -10,6 +10,8 @@ import           Control.Exception (assert)
 import           Control.Monad
 import           Data.Attoparsec.ByteString.Char8 (parseOnly, sepBy1', double, endOfLine, skipSpace)
 import           Data.Bits (unsafeShiftR)
+import qualified Data.Binary as Binary
+import           Data.Binary (Binary)
 import qualified Data.ByteString as BS
 import           Data.Foldable (for_)
 import           Data.IORef
@@ -30,7 +32,7 @@ import           Data.Vect.Float.Util.Quaternion
 import           Data.Vector.Storable (Vector)
 import qualified Data.Vector.Storable as V
 import           Data.Word
-import           Foreign.C.Types (CInt)
+import           Foreign.C.Types (CInt, CFloat(..))
 import           Foreign.Marshal.Alloc (alloca)
 import           Foreign.Ptr (Ptr, nullPtr)
 import           Foreign.Storable (peek)
@@ -80,13 +82,13 @@ instance Ord Normal3 where
 data CloudColor
   = OneColor !(Color3 GLfloat)
   | ManyColors (Vector Vec3) -- must be same size as `cloudPoints`
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic)
 
 data Cloud = Cloud
   { cloudID :: !ID
   , cloudColor :: !CloudColor -- TODO maybe clean this interface up
   , cloudPoints :: Vector Vec3
-  } deriving (Eq, Ord, Show, Typeable)
+  } deriving (Eq, Ord, Show, Generic, Typeable)
 
 data DragMode = Rotate | Translate
   deriving (Eq, Ord, Show, Typeable)
@@ -188,7 +190,7 @@ data Plane = Plane
   , planeEq     :: !PlaneEq
   , planeColor  :: !(Color3 GLfloat)
   , planeBounds :: Vector Vec3
-  } deriving (Eq, Ord, Show)
+  } deriving (Eq, Ord, Show, Generic)
 
 
 data Room = Room
@@ -196,7 +198,23 @@ data Room = Room
   , roomPlanes  :: ![Plane]
   , roomCloud   :: Cloud
   , roomCorners :: [Vec3] -- TODO newtype this
-  } deriving (Eq, Ord, Show)
+  } deriving (Eq, Ord, Show, Generic)
+
+
+deriving instance Generic Vec3
+instance Binary Vec3
+instance Binary Normal3 where
+  get = mkNormal <$> Binary.get
+  put = Binary.put . fromNormal
+deriving instance Generic CFloat
+instance Binary CFloat
+deriving instance Generic a => Generic (Color3 a)
+instance (Binary a, Generic a) => Binary (Color3 a)
+instance Binary CloudColor
+instance Binary Cloud
+instance Binary PlaneEq
+instance Binary Plane
+instance Binary Room
 
 
 type ID = Word32
@@ -696,6 +714,8 @@ input state (Char '\r') Down _ _ = addDevicePointCloud state
 input state (Char 'm') Down _ _ = addCornerPoint state
 input state (Char 'f') Down _ _ = fitCuboidToRoom state
 input state (Char 'r') Down _ _ = rotateSelectedPlanes state
+input state (Char 's') Down _ _ = save state
+input state (Char 'l') Down _ _ = load state
 input state (Char '/') Down _ _ = devSetup state
 input state (Char 'd') Down _ _ = sDisplayPlanes state $~ not
 input state (Char 'p') Down _ _ = sDisplayClouds state $~ not
@@ -1031,7 +1051,7 @@ loadPCDFile state file = do
 -- (Hessian normal form). It matters that the d is on the
 -- right hand side since we care about plane normal direction.
 data PlaneEq = PlaneEq !Normal3 !Float -- parameters: a b c d
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic)
 
 mkPlaneEq :: Vec3 -> Float -> PlaneEq
 mkPlaneEq abc d = PlaneEq (mkNormal abc) (d / norm abc)
@@ -1401,6 +1421,27 @@ newEmptyCloud :: State -> IO Cloud
 newEmptyCloud state = do
   i <- genID state
   return $ Cloud i (OneColor red) (V.empty)
+
+
+save :: State -> IO ()
+save state = saveTo state "save.bin"
+
+
+saveTo :: State -> FilePath -> IO ()
+saveTo State{ transient = TransientState{ sRooms } } path = do
+  putStrLn $ "Saving rooms to " ++ path
+  get sRooms >>= Binary.encodeFile path
+  putStrLn "saved"
+
+
+load :: State -> IO ()
+load state = loadFrom state "save.bin"
+
+
+loadFrom :: State -> FilePath -> IO ()
+loadFrom State{ transient = TransientState{ sRooms } } path = do
+  putStrLn $ "Loading rooms from " ++ path
+  (sRooms $=) =<< Binary.decodeFile path
 
 
 clearRooms :: State -> IO ()
