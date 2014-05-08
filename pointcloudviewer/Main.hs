@@ -1500,6 +1500,8 @@ devSetup state = do
     , Vec3 4.833117 4.139892 1.4955193
     , Vec3 4.5571914 1.541648 1.0290517
     ] })
+  fitCuboidToRoom state =<< (\(Just x) -> x) <$> getRoom state (roomID r)
+  autoAlignFloor state =<< (\(Just x) -> x) <$> getRoom state (roomID r)
   -- void $ loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
 
 
