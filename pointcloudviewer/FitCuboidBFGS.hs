@@ -208,9 +208,6 @@ nice = (/ 1e2) . dbl . round . (* 1e2)
     dbl :: Int -> Double
     dbl = fromIntegral
 
-vecmap :: (Double -> Double) -> Vec3 -> Vec3
-vecmap f (Vec3 a b c) = Vec3 (f a) (f b) (f c)
-
 
 guessDims :: Cuboid -> (Double, Double, Double)
 guessDims p = (a, b, c)
@@ -241,7 +238,7 @@ main = do
       let (sol, steps, err, _) = fitCuboidFromCenter c
       print (err, steps)
       when (err > 1) $ do
-        putStrLn $ "points:\n" ++ show (map (vecmap nice) c)
+        putStrLn $ "points:\n" ++ show (map (mapVec nice) c)
         -- putStrLn $ "bad sol:\n" ++ show (map nice sol)
-        putStrLn $ "wrong points:\n" ++ show (map (vecmap nice) (cuboidFromParams sol))
+        putStrLn $ "wrong points:\n" ++ show (map (mapVec nice) (cuboidFromParams sol))
         putStrLn $ "abc: " ++ show abc
