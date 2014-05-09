@@ -77,6 +77,7 @@ instance Eq Normal3 where
   n1 == n2 = fromNormal n1 == fromNormal n2
 instance Ord Normal3 where
   n1 `compare` n2 = fromNormal n1 `compare` fromNormal n2
+deriving instance Typeable Vec3
 
 
 data CloudColor
@@ -143,10 +144,10 @@ data State
   = State { sMouse :: IORef ( GLint, GLint )
           , sDragMode :: IORef (Maybe DragMode)
           , sSize :: IORef ( GLint, GLint )
-          , sRotX :: IORef GLfloat
-          , sRotY :: IORef GLfloat
-          , sZoom :: IORef GLfloat
-          , sPan :: IORef ( GLfloat, GLfloat, GLfloat )
+          , sLookAtPoint :: IORef Vec3 -- ^ focus point around which we rotate
+          , sRotUp :: IORef Float -- ^ view angle away from the ground plane
+          , sRotY :: IORef Float -- ^ angle around the up axis (Y in OpenGL), orthogonal to ground plane
+          , sZoom :: IORef Float
           , queuedClouds :: IORef (Map ID Cloud)
           , sFps :: IORef Int
           -- | Both `display` and `idle` set this to the current time
@@ -268,15 +269,19 @@ withDisabled vars f = do
   return x
 
 
+upAxis :: Vec3
+upAxis = Vec3 0 1 0
+
+
 -- |Called when stuff needs to be drawn
 display :: State -> DisplayCallback
 display state@State{..} = do
 
   ( width, height ) <- get sSize
-  rx                <- get sRotX
-  ry                <- get sRotY
-  z                 <- get sZoom
-  ( tx, ty, tz )    <- get sPan
+  rotY              <- get sRotY
+  rotUp             <- get sRotUp
+  zoom              <- get sZoom
+  lookAtPoint       <- get sLookAtPoint
 
   let buffers = [ ColorBuffer, DepthBuffer ]
 
@@ -284,13 +289,13 @@ display state@State{..} = do
   loadIdentity
   perspective 45.0 (fromIntegral width / fromIntegral height) 0.1 500.0
 
-
   matrixMode $= Modelview 0
   loadIdentity
-  translate $ Vector3 0 0 (-z * 10.0)
-  translate $ Vector3 (-tx) (-ty) (-tz)
-  rotate rx $ Vector3 1 0 0
-  rotate ry $ Vector3 0 1 0
+
+  -- Moving around and rotating around the lookAtPoint
+  let eye = lookAtPoint &+ zoom *& (vec3Z .* rotMatrixX (toRad (-rotUp))
+                                          .* rotMatrixY (toRad (-rotY )))
+  lookAt (toGlVertex eye) (toGlVertex lookAtPoint) (toGlVector upAxis)
 
   -- Do pick rendering (using color picking)
   pickingDisabled <- get sPickingDisabled
@@ -393,6 +398,13 @@ toFloat = realToFrac
 
 toDouble :: Float -> Double
 toDouble = realToFrac
+
+
+toGlVector :: Fractional a => Vec3 -> Vector3 a
+toGlVector (Vec3 a b c) = Vector3 (realToFrac a) (realToFrac b) (realToFrac c)
+
+toGlVertex :: Fractional a => Vec3 -> Vertex3 a
+toGlVertex (Vec3 a b c) = Vertex3 (realToFrac a) (realToFrac b) (realToFrac c)
 
 
 toRad :: Float -> Float
@@ -665,18 +677,26 @@ motion :: State -> Position -> IO ()
 motion State{..} (Position posx posy) = do
 
   ( oldx, oldy ) <- get sMouse
-  let diffX = fromIntegral $ posx - oldx
-      diffY = fromIntegral $ posy - oldy
+  let diffH = fromIntegral $ posx - oldx
+      diffV = fromIntegral $ posy - oldy
 
   sMouse $= ( posx, posy )
 
   get sDragMode >>= \case
     Just Rotate -> do
-      sRotY $~! (+ diffX)
-      sRotX $~! (+ diffY)
+      let clamp (l,u) x = min u (max l x)
+      sRotY  $~! (+ diffH)
+      sRotUp $~! (clamp (-80, 80) . (+ diffV))
     Just Translate -> do
-      zoom <- get sZoom
-      sPan $~! (\(x,y,z) -> (x - (diffX * 0.03 * zoom), y + (diffY * 0.03 * zoom), z) )
+      zoom  <- get sZoom
+      rotY  <- get sRotY
+      rotUp <- get sRotUp
+      -- Where left/right/up/down is depends on the rotation around the
+      -- up axis (rotY), and how much to move depends on the zoom.
+      -- rotUp allows us to go below the ground plane; since we always want to
+      -- "drag the ground plane around", we have to invert the Z component then.
+      let movVec = Vec3 (-diffH) 0 (-diffV * signum rotUp)
+      sLookAtPoint $~! (&+ (0.0025 * zoom) *& (movVec .* rotMatrixY (toRad $ -rotY)))
     _ -> return ()
 
 
@@ -776,10 +796,10 @@ createState = do
   sMouse            <- newIORef ( 0, 0 )
   sDragMode         <- newIORef Nothing
   sSize             <- newIORef ( 0, 1 )
-  sRotX             <- newIORef 0.0
+  sRotUp            <- newIORef 0.0
   sRotY             <- newIORef 0.0
-  sZoom             <- newIORef 5.0
-  sPan              <- newIORef ( 0, 0, 0 )
+  sZoom             <- newIORef 20.0
+  sLookAtPoint      <- newIORef zero
   queuedClouds      <- newIORef Map.empty
   sFps              <- newIORef 30
   sLastLoopTime     <- newIORef Nothing
