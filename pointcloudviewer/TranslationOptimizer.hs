@@ -15,7 +15,8 @@ lstSqDistances distMap = points
     dists = Map.toList distMap
     n = succ . maximum $ concat [ [i,j] | ((i,j),_) <- dists ]
 
-    a = fromRows [ fromList $ mkRow (i,j) | ((i,j),_) <- dists ]
+    a = fromColumns . drop 1 . toColumns $ -- drop first col as we want x_0 = 0
+          fromRows [ fromList $ mkRow (i,j) | ((i,j),_) <- dists ]
 
     -- Puts a -1 at position i and a +1 at position j
     mkRow (i,j) = [ (if | p == i    -> -1
