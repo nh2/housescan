@@ -180,6 +180,7 @@ data TransientState
                    , sSelectedPlanes :: IORef [Plane]
                    , sRooms :: IORef (Map ID Room)
                    , sSelectedRoom :: IORef (Maybe Room)
+                   , sConnectedWalls :: IORef [(ID, ID)]
                    }
 
 instance Show TransientState where
@@ -426,6 +427,8 @@ drawObjects state@State{ sDisplayPlanes, sDisplayClouds, transient = TransientSt
 
   when (not picking) $ drawRoomCorners state
 
+  when (not picking) $ drawWallConnections state
+
   on sDisplayPlanes $ drawPlanes state
 
 
@@ -499,6 +502,21 @@ drawRoomCorners State{ transient = TransientState{ sRooms } } = do
             color3 1 0 1 >> vertexVec3 f
             color3 1 1 0 >> vertexVec3 g
             color3 1 1 1 >> vertexVec3 h
+
+
+drawWallConnections :: State -> IO ()
+drawWallConnections  State{ transient = TransientState{ sConnectedWalls, sRooms } } = do
+  conns <- get sConnectedWalls
+  planes <- concatMap roomPlanes . Map.elems <$> get sRooms
+
+  renderPrimitive Lines $ do
+    forM_ conns $ \(pid1, pid2) -> do
+      case [ p | p <- planes, planeID p `elem` [pid1,pid2] ] of
+        [p1, p2] -> do
+          color3 1.0 0.0 0.0
+          vertexVec3 (planeMean p1)
+          vertexVec3 (planeMean p2)
+        _ -> putStrLn $ "Room planes not found: " ++ show (pid1, pid2)
 
 
 drawPlanes :: State -> IO ()
@@ -745,6 +763,7 @@ input state (Char '/') Down _ _ = devSetup state
 input state (Char 'd') Down _ _ = sDisplayPlanes state $~ not
 input state (Char 'p') Down _ _ = sDisplayClouds state $~ not
 input state (Char 'c') Down _ _ = clearRooms state
+input state (Char 'w') Down _ _ = connectWalls state
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
 
@@ -828,6 +847,7 @@ createTransientState = do
   sSelectedPlanes <- newIORef []
   sRooms <- newIORef Map.empty
   sSelectedRoom <- newIORef Nothing
+  sConnectedWalls <- newIORef []
   return TransientState{..}
 
 
@@ -1496,6 +1516,29 @@ clearRooms :: State -> IO ()
 clearRooms State{ transient = TransientState{ sRooms } } = do
   putStrLn "Clearing"
   sRooms $= Map.empty
+
+
+connectWalls :: State -> IO ()
+connectWalls State{ transient = TransientState{..}, ..} = do
+  get sSelectedPlanes >>= \case
+    [p1,p2] -> do
+      let pid1 = planeID p1
+          pid2 = planeID p2
+      rooms <- Map.elems <$> get sRooms
+      case (findRoomContainingPlane rooms pid1, findRoomContainingPlane rooms pid2) of
+        (Just room1, Just room2) -> do
+          -- TODO make sure both rooms are axis aligned
+          putStrLn $ "Connecting rooms " ++ show (roomID room1, roomID room2) ++ " via wall planes " ++ show (pid1, pid2)
+          sConnectedWalls $~ \ws -> if (pid1, pid2) `elem` ws || (pid2, pid1) `elem` ws
+                                      then ws
+                                      else (pid1, pid2):ws
+        _ -> do
+          putStrLn $ "The planes " ++ show (pid1, pid2) ++ " are not walls of different rooms!"
+
+    ps -> putStrLn $ show (length ps) ++ " walls selected, need 2"
+
+  -- Reset selected planes in any case
+  sSelectedPlanes $= []
 
 
 devSetup :: State -> IO ()
