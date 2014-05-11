@@ -28,9 +28,8 @@ biject xs = (indexOf, aOfIndex)
 lstSqDistances :: (Ord a) => Map (a, a) Double -> Map a Double
 lstSqDistances distMap = res
   where
-    uniq = Set.toList . Set.fromList
-    uniqueAs = uniq $ concat [ [a,b] | (a,b) <- Map.keys distMap ]
-    (indexOf, aOfIndex) = biject uniqueAs
+    -- `biject` takes care of duplicates for us.
+    (indexOf, aOfIndex) = biject $ concat [ [a,b] | (a,b) <- Map.keys distMap ]
 
     pos = lstSqDistancesI (Map.mapKeys (\(a,b) -> (indexOf a, indexOf b)) distMap)
     res = Map.fromList $ zip (map aOfIndex [0..]) pos
