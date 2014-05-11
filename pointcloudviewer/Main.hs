@@ -704,7 +704,7 @@ motion State{..} (Position posx posy) = do
     Just Rotate -> do
       let clamp (l,u) x = min u (max l x)
       sRotY  $~! (+ diffH)
-      sRotUp $~! (clamp (-80, 80) . (+ diffV))
+      sRotUp $~! (clamp (-89.999, 89.999) . (+ diffV)) -- full 90 gives non-smooth rotation behaviour
     Just Translate -> do
       zoom  <- get sZoom
       rotY  <- get sRotY
