@@ -16,7 +16,7 @@ import Numeric.LinearAlgebra.Algorithms (linearSolveLS)
 biject :: (Ord a) => [a] -> (a -> Int, Int -> a)
 biject xs = (indexOf, aOfIndex)
   where
-    uniqueAs = Set.toList . Set.fromList $ xs
+    uniqueAs = ordNub xs
     indexToAMap = Map.fromList $ zip [(0::Int)..] uniqueAs
     aToIndexMap = Map.fromList $ zip uniqueAs     [0..]
     get x = fromMaybe (error "biject") . Map.lookup x
@@ -54,3 +54,11 @@ lstSqDistancesI distMap = points
 
     [x] = toColumns $ linearSolveLS a b
     points = 0.0 : toList x -- prepend a 0 for x_0
+
+
+ordNub :: (Ord a) => [a] -> [a]
+ordNub l = go Set.empty l
+  where
+    go _ [] = []
+    go s (x:xs) = if x `Set.member` s then go s xs
+                                      else x : go (Set.insert x s) xs
