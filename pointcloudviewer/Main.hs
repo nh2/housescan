@@ -1507,9 +1507,11 @@ load state = loadFrom state "save.bin"
 
 
 loadFrom :: State -> FilePath -> IO ()
-loadFrom State{ transient = TransientState{ sRooms } } path = do
+loadFrom state@State{ transient = TransientState{ sRooms } } path = do
   putStrLn $ "Loading rooms from " ++ path
-  (sRooms $=) =<< Binary.decodeFile path
+  rooms <- Binary.decodeFile path
+  sRooms $= rooms
+  forM_ (Map.elems rooms) (updateRoom state) -- allocates room clouds
 
 
 clearRooms :: State -> IO ()
