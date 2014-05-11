@@ -1515,7 +1515,7 @@ loadFrom state@State{ transient = TransientState{ sRooms } } path = do
 
 
 clearRooms :: State -> IO ()
-clearRooms State{ transient = TransientState{ sRooms, sAllocatedClouds } } = do
+clearRooms State{ transient = TransientState{ sRooms, sConnectedWalls, sAllocatedClouds } } = do
   putStrLn "Clearing"
   roomClouds <- map roomCloud . Map.elems <$> get sRooms
 
@@ -1531,6 +1531,8 @@ clearRooms State{ transient = TransientState{ sRooms, sAllocatedClouds } } = do
         deleteObjectName bufObj
         for_ m'colorObj deleteObjectName
         sAllocatedClouds $~ Map.delete cloudID
+
+  sConnectedWalls $= []
 
 
 connectWalls :: State -> IO ()
