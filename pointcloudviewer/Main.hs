@@ -1248,7 +1248,8 @@ rotatePlane rotMat p = rotatePlaneAround (planeMean p) rotMat p
 
 
 pointMean :: Vector Vec3 -> Vec3
-pointMean points = c
+pointMean points | V.null points = error "pointMean: empty"
+                 | otherwise     = c
   where
     n = V.length points
     c = V.foldl' (&+) zero points &* (1 / fromIntegral n)  -- bound center
