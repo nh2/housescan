@@ -27,4 +27,4 @@ lstSqDistances distMap = points
     b = asColumn $ fromList [ d | (_, d) <- dists ]
 
     [x] = toColumns $ linearSolveLS a b
-    points = traceShow a $ toList x
+    points = 0.0 : toList x -- prepend a 0 for x_0
