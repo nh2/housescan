@@ -423,6 +423,8 @@ drawObjects state@State{ sDisplayPlanes, sDisplayClouds, transient = TransientSt
 
   when (not picking) $ drawReferenceSystem
 
+  when (not picking) $ drawLookAtPoint state
+
   when (not picking) $ on sDisplayClouds $ drawPointClouds state
 
   when (not picking) $ drawRoomCorners state
@@ -450,6 +452,19 @@ drawReferenceSystem = do
     vertex3 0.0 0.0 0.0
     vertex3 0.0 0.0 20.0
 
+
+drawLookAtPoint :: State -> IO ()
+drawLookAtPoint State{ sLookAtPoint } = do
+
+  Vec3 x' y' z' <- get sLookAtPoint
+  let (x, y, z) = (realToFrac x', realToFrac y', realToFrac z' :: GLfloat)
+
+  renderPrimitive Lines $ do
+    color3 0.4 0.4 0.4
+    vertex3 (x - 0.5) y z
+    vertex3 (x + 0.5) y z
+    vertex3 x         y (z - 0.5)
+    vertex3 x         y (z + 0.5)
 
 
 drawPointClouds :: State -> IO ()
