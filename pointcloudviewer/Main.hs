@@ -1515,9 +1515,22 @@ loadFrom state@State{ transient = TransientState{ sRooms } } path = do
 
 
 clearRooms :: State -> IO ()
-clearRooms State{ transient = TransientState{ sRooms } } = do
+clearRooms State{ transient = TransientState{ sRooms, sAllocatedClouds } } = do
   putStrLn "Clearing"
+  roomClouds <- map roomCloud . Map.elems <$> get sRooms
+
   sRooms $= Map.empty
+
+  forM_ roomClouds $ \Cloud{ cloudID } -> do
+    putStrLn $ "Deallocating room cloud " ++ show cloudID
+    allocatedClouds <- get sAllocatedClouds
+
+    case Map.lookup cloudID allocatedClouds of
+      Nothing -> putStrLn $ "Warning: clearRooms: cloud " ++ show cloudID ++ " does not exist"
+      Just (_, bufObj, m'colorObj) -> do
+        deleteObjectName bufObj
+        for_ m'colorObj deleteObjectName
+        sAllocatedClouds $~ Map.delete cloudID
 
 
 connectWalls :: State -> IO ()
