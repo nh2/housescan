@@ -1349,9 +1349,8 @@ rotateKinfuRoom = rotateRoom (rotMatrixX (toRad 180))
 
 
 loadRoom :: State -> FilePath -> IO Room
-loadRoom state@State{ transient = TransientState{ sRooms } } dir = do
+loadRoom state dir = do
   cloud <- cloudFromFile state (dir </> "cloud_downsampled.pcd")
-  addPointCloud state cloud
 
   -- Make all plane normals inward facing
   let roomCenter = cloudMean cloud
@@ -1366,7 +1365,7 @@ loadRoom state@State{ transient = TransientState{ sRooms } } dir = do
 
   i <- genID state
   let room = rotateKinfuRoom $ Room i planes cloud []
-  sRooms $~ Map.insert i room
+  updateRoom state room
   putStrLn $ "Room " ++ show i ++ " loaded"
   return room
 
