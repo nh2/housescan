@@ -180,7 +180,7 @@ data TransientState
                    , sSelectedPlanes :: IORef [Plane]
                    , sRooms :: IORef (Map ID Room)
                    , sSelectedRoom :: IORef (Maybe Room)
-                   , sConnectedWalls :: IORef [(ID, ID)]
+                   , sConnectedWalls :: IORef [(Axis, WallRelation, ID, ID)]
                    }
 
 instance Show TransientState where
@@ -206,6 +206,14 @@ data Room = Room
   , roomCloud   :: Cloud
   , roomCorners :: [Vec3] -- TODO newtype this
   } deriving (Eq, Ord, Show, Generic)
+
+
+data Axis = X | Y | Z
+  deriving (Eq, Ord, Show, Generic)
+
+
+data WallRelation = Opposite | Same
+  deriving (Eq, Ord, Show, Generic)
 
 
 deriving instance Generic Vec3
@@ -522,16 +530,29 @@ drawRoomCorners State{ transient = TransientState{ sRooms } } = do
 drawWallConnections :: State -> IO ()
 drawWallConnections  State{ transient = TransientState{ sConnectedWalls, sRooms } } = do
   conns <- get sConnectedWalls
-  planes <- concatMap roomPlanes . Map.elems <$> get sRooms
+  allRoomPlanes <- concatMap roomPlanes . Map.elems <$> get sRooms
 
-  renderPrimitive Lines $ do
-    forM_ conns $ \(pid1, pid2) -> do
-      case [ p | p <- planes, planeID p `elem` [pid1,pid2] ] of
-        [p1, p2] -> do
-          color3 1.0 0.0 0.0
-          vertexVec3 (planeMean p1)
-          vertexVec3 (planeMean p2)
-        _ -> putStrLn $ "Room planes not found: " ++ show (pid1, pid2)
+  forM_ conns $ \(axis, relation, pid1, pid2) -> do
+
+    -- Find the two planes with these plane IDs
+    case [ p | p <- allRoomPlanes, planeID p `elem` [pid1,pid2] ] of
+      [p1, p2] -> do
+
+        case axis of
+          X -> color3 1.0 0.0 0.0
+          Y -> color3 0.0 1.0 0.0
+          Z -> color3 0.0 0.0 1.0
+
+        let withStyle = case relation of
+              Opposite -> id
+              Same     -> withVar lineStipple (Just (1, 0x03ff))
+
+        withStyle $ do
+          renderPrimitive Lines $ do
+            vertexVec3 (planeMean p1)
+            vertexVec3 (planeMean p2)
+
+      _ -> putStrLn $ "Room planes not found: " ++ show (pid1, pid2)
 
 
 drawPlanes :: State -> IO ()
@@ -778,7 +799,8 @@ input state (Char '/') Down _ _ = devSetup state
 input state (Char 'd') Down _ _ = sDisplayPlanes state $~ not
 input state (Char 'p') Down _ _ = sDisplayClouds state $~ not
 input state (Char 'c') Down _ _ = clearRooms state
-input state (Char 'w') Down _ _ = connectWalls state
+input state (Char 'w') Down _ _ = connectWalls state Opposite
+input state (Char 'W') Down _ _ = connectWalls state Same
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
 
@@ -1550,8 +1572,8 @@ clearRooms State{ transient = TransientState{ sRooms, sConnectedWalls, sAllocate
   sConnectedWalls $= []
 
 
-connectWalls :: State -> IO ()
-connectWalls State{ transient = TransientState{..}, ..} = do
+connectWalls :: State -> WallRelation -> IO ()
+connectWalls State{ transient = TransientState{..}, ..} relation = do
   get sSelectedPlanes >>= \case
     [p1,p2] -> do
       let pid1 = planeID p1
@@ -1559,11 +1581,19 @@ connectWalls State{ transient = TransientState{..}, ..} = do
       rooms <- Map.elems <$> get sRooms
       case (findRoomContainingPlane rooms pid1, findRoomContainingPlane rooms pid2) of
         (Just room1, Just room2) -> do
-          -- TODO make sure both rooms are axis aligned
           putStrLn $ "Connecting rooms " ++ show (roomID room1, roomID room2) ++ " via wall planes " ++ show (pid1, pid2)
-          sConnectedWalls $~ \ws -> if (pid1, pid2) `elem` ws || (pid2, pid1) `elem` ws
-                                      then ws
-                                      else (pid1, pid2):ws
+
+          let PlaneEq n1 _ = planeEq p1
+              PlaneEq n2 _ = planeEq p2
+          let bestAxis n = snd $ maximum [ (abs (fromNormal n `dotprod` v), ax) | (v, ax) <- [(vec3X, X), (vec3Y, Y), (vec3Z, Z)] ]
+
+          case (bestAxis n1, bestAxis n2) of
+            (a, a') | a /= a' -> putStrLn $ "Could not guess axis of wall connection"
+            (axis, _)         -> do
+              -- TODO improve the duplicate check
+              sConnectedWalls $~ \ws -> if [ () | (_, _, pidA, pidB) <- ws, (pidA, pidB) `elem` [(pid1,pid2),(pid2,pid1)] ] /= []
+                                          then ws
+                                          else (axis, relation, pid1, pid2):ws
         _ -> do
           putStrLn $ "The planes " ++ show (pid1, pid2) ++ " are not walls of different rooms!"
 
