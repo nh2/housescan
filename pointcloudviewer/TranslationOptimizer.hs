@@ -35,6 +35,9 @@ lstSqDistances distMap = res
     res = Map.fromList $ zip (map aOfIndex [0..]) pos
 
 
+-- TODO Add allowing hard (in)equality constraints, e.g. to forbid
+--      the least-squares optimization pushing two rooms into each other.
+
 lstSqDistancesI :: Map (Int, Int) Double -> [Double]
 lstSqDistancesI distMap = points
   where
