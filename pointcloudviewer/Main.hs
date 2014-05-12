@@ -170,6 +170,7 @@ data State
           -- Displaying options
           , sDisplayPlanes :: IORef Bool
           , sDisplayClouds :: IORef Bool
+          , sPointSize :: IORef Float
           -- Visual debugging
           , sDebugProjectPlanePointsToEq :: IORef Bool
           -- Transient state
@@ -480,9 +481,11 @@ drawLookAtPoint State{ sLookAtPoint } = do
 
 
 drawPointClouds :: State -> IO ()
-drawPointClouds State{ transient = TransientState{ sAllocatedClouds } } = do
+drawPointClouds State{ sPointSize, transient = TransientState{ sAllocatedClouds } } = do
 
   allocatedClouds <- get sAllocatedClouds
+
+  (pointSize $=) . realToFrac =<< get sPointSize
 
   -- Render all clouds
   forM_ (Map.elems allocatedClouds) $ \(Cloud{ cloudColor = colType, cloudPoints }, bufObj, m'colorObj) -> do
@@ -803,6 +806,8 @@ input state (Char 'l') Down _ _ = load state
 input state (Char '/') Down _ _ = devSetup state
 input state (Char 'd') Down _ _ = sDisplayPlanes state $~ not
 input state (Char 'p') Down _ _ = sDisplayClouds state $~ not
+input state (Char '+') Down _ _ = sPointSize state $~ (+ 1.0)
+input state (Char '-') Down _ _ = sPointSize state $~ (abs . subtract 1.0)
 input state (Char 'c') Down _ _ = clearRooms state
 input state (Char 'w') Down _ _ = connectWalls state Opposite
 input state (Char 'W') Down _ _ = connectWalls state Same
@@ -876,6 +881,7 @@ createState = do
   sWallThickness    <- newIORef 0.1
   sDisplayPlanes    <- newIORef True
   sDisplayClouds    <- newIORef True
+  sPointSize        <- newIORef 2.0
   sDebugProjectPlanePointsToEq <- newIORef True -- It is a good idea to keep this on, always
   transient         <- createTransientState
 
@@ -927,7 +933,6 @@ mainState state@State{..} = do
   blend       $= Enabled
   blendFunc   $= (SrcAlpha, OneMinusSrcAlpha)
   lineWidth   $= 3.0
-  pointSize   $= 2.0
   lineSmooth  $= Enabled
 
   -- Callbacks
