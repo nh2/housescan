@@ -165,6 +165,8 @@ data State
           , sUnderCursor :: IORef (Maybe ID)
           , sDebugPickingDrawVisible :: IORef Bool
           , sDebugPickingTiming :: IORef Bool
+          -- Room optimisation settings
+          , sWallThickness :: IORef Float
           -- Displaying options
           , sDisplayPlanes :: IORef Bool
           , sDisplayClouds :: IORef Bool
@@ -871,6 +873,7 @@ createState = do
   sUnderCursor      <- newIORef Nothing
   sDebugPickingDrawVisible <- newIORef False
   sDebugPickingTiming      <- newIORef False
+  sWallThickness    <- newIORef 0.1
   sDisplayPlanes    <- newIORef True
   sDisplayClouds    <- newIORef True
   sDebugProjectPlanePointsToEq <- newIORef True -- It is a good idea to keep this on, always
@@ -1609,7 +1612,7 @@ connectWalls State{ transient = TransientState{..}, ..} relation = do
 
 
 optimizeRoomPositions :: State -> IO ()
-optimizeRoomPositions state@State{ transient = TransientState{..} } = do
+optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..} } = do
   rooms <- Map.elems <$> get sRooms
   conns <- get sConnectedWalls
 
@@ -1624,8 +1627,7 @@ optimizeRoomPositions state@State{ transient = TransientState{..} } = do
   when ([ () | (_, _, r1, r2, _, _) <- wallsRooms, roomCorners r1 == [] || roomCorners r2 == [] ] /= []) $
     error "some room in position optimization has no corners!"
 
-  let
-      _WALL_THICKNESS = 0.5
+  wallThickness <- get sWallThickness
 
   -- We optimize translations along the 3 axes separately (they are independent).
   -- That means that we we only have to work on one component of any 3D point
@@ -1638,7 +1640,7 @@ optimizeRoomPositions state@State{ transient = TransientState{..} } = do
           [ ((roomID r1, roomID r2), realToFrac $ o + signum o * wallDistance)
           | (p1, p2, r1, r2, ax, relation) <- wallsRooms, ax == axis
           , let o = roomCenterOffsetFromWalls r1 r2 p1 p2 axis relation
-          , let wallDistance = case relation of Opposite -> _WALL_THICKNESS
+          , let wallDistance = case relation of Opposite -> wallThickness
                                                 Same     -> 0
           ]
 
