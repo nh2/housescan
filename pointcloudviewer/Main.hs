@@ -147,8 +147,8 @@ data State
           , sDragMode :: IORef (Maybe DragMode)
           , sSize :: IORef ( GLint, GLint )
           , sLookAtPoint :: IORef Vec3 -- ^ focus point around which we rotate
-          , sRotUp :: IORef Float -- ^ view angle away from the ground plane
-          , sRotY :: IORef Float -- ^ angle around the up axis (Y in OpenGL), orthogonal to ground plane
+          , sRotUp :: IORef Float -- ^ view angle (degrees) away from the ground plane
+          , sRotY :: IORef Float -- ^ angle (degrees) around the up axis (Y in OpenGL), orthogonal to ground plane
           , sZoom :: IORef Float
           , queuedClouds :: IORef (Map ID Cloud)
           , sFps :: IORef Int
