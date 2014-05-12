@@ -1626,37 +1626,65 @@ optimizeRoomPositions state@State{ transient = TransientState{..} } = do
 
   let
       _WALL_THICKNESS = 0.5
-      cornerMean = pointMean . V.fromList . roomCorners
 
-      getComponent X (Vec3 x _ _) = x
-      getComponent Y (Vec3 _ y _) = y
-      getComponent Z (Vec3 _ _ z) = z
-      d `along` X = Vec3 d 0 0
-      d `along` Y = Vec3 0 d 0
-      d `along` Z = Vec3 0 0 d
-
-  -- We optimize translations along the 3 axes separately (they are independent)
+  -- We optimize translations along the 3 axes separately (they are independent).
+  -- That means that we we only have to work on one component of any 3D point
+  -- involved, which we get with `getComponent axis`.
   forM_ [X,Y,Z] $ \axis -> do
-    let centerDistances :: [ ((ID, ID), Double) ]
-        centerDistances = [ ((roomID r1, roomID r2),
-                            realToFrac $ case relation of
-                              Opposite -> let comp = getComponent axis $ (planeMean p1 &- cornerMean r1) &- (planeMean p2 &- cornerMean r2)
-                                           in comp + signum comp * _WALL_THICKNESS
-                              Same     -> abs (norm (planeMean p1 &- cornerMean r1) - norm (planeMean p2 &- cornerMean r2))
-                            )
-                          | (p1, p2, r1, r2, ax, relation) <- wallsRooms, ax == axis ]
 
-        newRoomCenters = Map.toList $ lstSqDistances (Map.fromList centerDistances)
+    let -- Each connected wall expresses a desired distance between two rooms.
+        desiredCenterOffsets :: [ ((ID, ID), Double) ]
+        desiredCenterOffsets =
+          [ ((roomID r1, roomID r2), realToFrac $ o + signum o * wallDistance)
+          | (p1, p2, r1, r2, ax, relation) <- wallsRooms, ax == axis
+          , let o = roomCenterOffsetFromWalls r1 r2 p1 p2 axis relation
+          , let wallDistance = case relation of Opposite -> _WALL_THICKNESS
+                                                Same     -> 0
+          ]
 
+        -- Find the optimal position of the rooms along `axis`.
+        -- This returns the first room being 0 along the axis, and the other rooms
+        -- at positions that minimize the square error from the desired distances.
+        newRoomCenters :: Map ID Float
+        newRoomCenters = realToFrac <$> lstSqDistances (Map.fromList desiredCenterOffsets)
+
+    -- Check if there is any room to move on this axis
     case [ r | (_,_,r,_,ax,_) <- wallsRooms, ax == axis ] of
       [] -> putStrLn $ "Don't need to align along " ++ show axis ++ " axis"
       firstRoom:_ -> do
+        -- We want the first room to be at its original position instead of at 0,
+        -- so shift the optimized room positions by that original position.
         let firstRoomCenterComp = getComponent axis $ cornerMean firstRoom
-            newRoomCentersFromFirst = [ (i, pos + realToFrac firstRoomCenterComp) | (i, pos) <- newRoomCenters ]
+            newRoomCentersFromFirst = (+ firstRoomCenterComp) <$> newRoomCenters
 
-        forM_ newRoomCentersFromFirst $ \(rid, newRoomCenterComp) -> do
-          changeRoom state rid (\r -> let comp = getComponent axis (cornerMean r)
-                                       in translateRoom ( (realToFrac newRoomCenterComp - comp) `along` axis) r)
+        -- Translate all rooms to their new positions.
+        forM_ (Map.toList newRoomCentersFromFirst) $ \(rid, newRoomCenterComp) -> do
+          changeRoom state rid $ \r ->
+            let oldRoomCenterComp = getComponent axis (cornerMean r)
+             in translateRoom ( (newRoomCenterComp - oldRoomCenterComp) `along` axis) r
+
+
+getComponent :: Axis -> Vec3 -> Float
+getComponent X (Vec3 x _ _) = x
+getComponent Y (Vec3 _ y _) = y
+getComponent Z (Vec3 _ _ z) = z
+
+
+along :: Float -> Axis -> Vec3
+d `along` X = Vec3 d 0 0
+d `along` Y = Vec3 0 d 0
+d `along` Z = Vec3 0 0 d
+
+
+cornerMean :: Room -> Vec3
+cornerMean = pointMean . V.fromList . roomCorners
+
+
+-- Assumes rooms are perfect cuboids.
+roomCenterOffsetFromWalls :: Room -> Room -> Plane -> Plane -> Axis -> WallRelation -> Float
+roomCenterOffsetFromWalls r1 r2 p1 p2 axis relation = case relation of
+  Opposite -> getComponent axis $ (planeMean p1 &- cornerMean r1) &- (planeMean p2 &- cornerMean r2)
+  Same     -> abs (norm (planeMean p1 &- cornerMean r1) - norm (planeMean p2 &- cornerMean r2))
 
 
 devSetup :: State -> IO ()
