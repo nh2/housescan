@@ -535,8 +535,9 @@ drawWallConnections  State{ transient = TransientState{ sConnectedWalls, sRooms 
   forM_ conns $ \(axis, relation, pid1, pid2) -> do
 
     -- Find the two planes with these plane IDs
-    case [ p | p <- allRoomPlanes, planeID p `elem` [pid1,pid2] ] of
-      [p1, p2] -> do
+    case ( find ((== pid1) . planeID) allRoomPlanes
+         , find ((== pid2) . planeID) allRoomPlanes ) of
+      (Just p1, Just p2) -> do
 
         case axis of
           X -> color3 1.0 0.0 0.0
