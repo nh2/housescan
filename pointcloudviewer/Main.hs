@@ -29,7 +29,8 @@ import qualified Data.Vect.Double as Vect.Double
 import           Data.Vect.Float hiding (Vector)
 import           Data.Vect.Float.Instances ()
 import           Data.Vect.Float.Util.Quaternion
-import           Data.Vector.Storable (Vector)
+import           Data.Vector.Algorithms.Heap (partialSortBy)
+import           Data.Vector.Storable (Vector, (!))
 import qualified Data.Vector.Storable as V
 import           Data.Word
 import           Foreign.C.Types (CInt, CFloat(..))
@@ -1727,8 +1728,27 @@ devSetup state = do
     changeRoom state i $ translateRoom (Vec3 (6 * fromIntegral x) 0 (6 * fromIntegral z))
     autoAlignFloor state =<< (\(Just r) -> r) <$> getRoom state i
 
+    changeRoom state i $ removeCeiling
+
 
   return ()
+
+
+-- Chop of top 20% of points to peek inside
+removeCeiling :: Room -> Room
+removeCeiling r@Room{ roomCloud = c@Cloud{ cloudPoints = oldCloudPoints, cloudColor = oldCloudColor } }
+  = r{ roomCloud = c{ cloudPoints = newCloudPoints
+                    , cloudColor  = newCloudColor } }
+  where
+    n = V.length oldCloudPoints
+    nKick = n `quot` 5 -- 20%
+
+    yLimit = getComponent Y $ V.modify (\mv -> partialSortBy (comparing $ negate . getComponent Y) mv nKick) oldCloudPoints ! (nKick - 1)
+
+    newCloudPoints = V.filter ((<= yLimit) . getComponent Y) oldCloudPoints
+    newCloudColor = case oldCloudColor of
+      col@OneColor{}  -> col
+      ManyColors cols -> ManyColors $ V.ifilter (\i _ -> getComponent Y (oldCloudPoints ! i) <= yLimit) cols
 
 
 -- | For debugging / ghci only.
