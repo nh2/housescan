@@ -51,7 +51,9 @@ import           System.SelfRestart (forkSelfRestartExePollWithAction)
 import           System.IO (hPutStrLn, stderr)
 
 import           FitCuboidBFGS hiding (main)
+import           TranslationOptimizer (lstSqDistances)
 import           HoniHelper (takeDepthSnapshot)
+
 
 -- Things needed to `show` the Generic representation of our `State`,
 -- which we use to check if the State type changed when doing hot code
@@ -802,6 +804,7 @@ input state (Char 'p') Down _ _ = sDisplayClouds state $~ not
 input state (Char 'c') Down _ _ = clearRooms state
 input state (Char 'w') Down _ _ = connectWalls state Opposite
 input state (Char 'W') Down _ _ = connectWalls state Same
+input state (Char 'o') Down _ _ = optimizeRoomPositions state
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
 
@@ -1603,6 +1606,106 @@ connectWalls State{ transient = TransientState{..}, ..} relation = do
 
   -- Reset selected planes in any case
   sSelectedPlanes $= []
+
+
+optimizeRoomPositions :: State -> IO ()
+optimizeRoomPositions state@State{ transient = TransientState{..} } = do
+  rooms <- Map.elems <$> get sRooms
+  conns <- get sConnectedWalls
+
+  let wallsRooms = [ (p1, p2, r1, r2, axis, relation)
+                   | (axis, relation, pid1, pid2) <- conns
+                   , let Just r1 = findRoomContainingPlane rooms pid1
+                   , let Just r2 = findRoomContainingPlane rooms pid2
+                   , let [p1] = [ p | p <- roomPlanes r1, planeID p == pid1 ]
+                   , let [p2] = [ p | p <- roomPlanes r2, planeID p == pid2 ]
+                   ]
+
+  when ([ () | (_, _, r1, r2, _, _) <- wallsRooms, roomCorners r1 == [] || roomCorners r2 == [] ] /= []) $
+    error "some room in position optimization has no corners!"
+
+  let
+      _WALL_THICKNESS = 0.5
+      cornerMean = pointMean . V.fromList . roomCorners
+
+
+  do -- X
+    let centerDistancesX = [ ((roomID r1, roomID r2),
+                             case relation of
+                               -- Opposite -> norm (planeMean p1 &- cornerMean r1) + norm (planeMean p2 &- cornerMean r2) + _WALL_THICKNESS -- TODO incorrect
+                               Opposite -> let Vec3 x _ _ = (planeMean p1 &- cornerMean r1) &- (planeMean p2 &- cornerMean r2) in x + signum x * _WALL_THICKNESS -- TODO incorrect
+                               Same     -> abs (norm (planeMean p1 &- cornerMean r1) - norm (planeMean p2 &- cornerMean r2))
+                             )
+                           | (p1, p2, r1, r2, X, relation) <- wallsRooms ]
+
+        lx = [ ((id1, id2), realToFrac x) | ((id1, id2), x) <- centerDistancesX ]
+    print ("lx", lx)
+    let
+        optCentersX = Map.toList $ lstSqDistances (Map.fromList lx)
+
+    case [ r | (_,_,r,_,X,_) <- wallsRooms ] of
+      [] -> putStrLn $ "Don't need to align along X axis"
+      r1:_ -> do
+        let _firstRoomCenter@(Vec3 r1cx _ _) = cornerMean r1
+            optCentersXFromFirst = [ (x, pos + realToFrac r1cx) | (x, pos) <- optCentersX ]
+
+        print ("optCentersX", optCentersX)
+        print ("optCentersXFromFirst", optCentersXFromFirst)
+
+        forM_ optCentersXFromFirst $ \(rid, posX) -> do
+          changeRoom state rid (\r -> let Vec3 x _ _ = cornerMean r in translateRoom (Vec3 (realToFrac posX - x) 0 0) r)
+
+
+  do -- Y
+    let centerDistancesY = [ ((roomID r1, roomID r2),
+                             case relation of
+                               Opposite -> let Vec3 _ y _ = (planeMean p1 &- cornerMean r1) &- (planeMean p2 &- cornerMean r2) in y + signum y * _WALL_THICKNESS -- TODO incorrect
+                               Same     -> abs (norm (planeMean p1 &- cornerMean r1) - norm (planeMean p2 &- cornerMean r2))
+                             )
+                           | (p1, p2, r1, r2, Y, relation) <- wallsRooms ]
+
+        ly = [ ((id1, id2), realToFrac x) | ((id1, id2), x) <- centerDistancesY ]
+    print ("ly", ly)
+    let
+        optCentersY = Map.toList $ lstSqDistances (Map.fromList ly)
+
+    case [ r | (_,_,r,_,Y,_) <- wallsRooms ] of
+      [] -> putStrLn $ "Don't need to align along Y axis"
+      r1:_ -> do
+        let _firstRoomCenter@(Vec3 _ r1cy _) = cornerMean r1
+            optCentersYFromFirst = [ (y, pos + realToFrac r1cy) | (y, pos) <- optCentersY ]
+
+        print ("optCentersY", optCentersY)
+        print ("optCentersYFromFirst", optCentersYFromFirst)
+
+        forM_ optCentersYFromFirst $ \(rid, posY) -> do
+          changeRoom state rid (\r -> let Vec3 _ y _ = cornerMean r in translateRoom (Vec3 0 (realToFrac posY - y) 0) r)
+
+
+  do -- Z
+    let centerDistancesZ = [ ((roomID r1, roomID r2),
+                             case relation of
+                               Opposite -> let Vec3 _ _ z = (planeMean p1 &- cornerMean r1) &- (planeMean p2 &- cornerMean r2) in z + signum z * _WALL_THICKNESS -- TODO incorrect
+                               Same     -> abs (norm (planeMean p1 &- cornerMean r1) - norm (planeMean p2 &- cornerMean r2))
+                             )
+                           | (p1, p2, r1, r2, Z, relation) <- wallsRooms ]
+
+        lz = [ ((id1, id2), realToFrac z) | ((id1, id2), z) <- centerDistancesZ ]
+    print ("lz", lz)
+    let
+        optCentersZ = Map.toList $ lstSqDistances (Map.fromList lz)
+
+    case [ r | (_,_,r,_,Z,_) <- wallsRooms ] of
+      [] -> putStrLn $ "Don't need to align along Z axis"
+      r1:_ -> do
+        let _firstRoomCenter@(Vec3 _ _ r1cz) = cornerMean r1
+            optCentersZFromFirst = [ (z, pos + realToFrac r1cz) | (z, pos) <- optCentersZ ]
+
+        print ("optCentersZ", optCentersZ)
+        print ("optCentersZFromFirst", optCentersZFromFirst)
+
+        forM_ optCentersZFromFirst $ \(rid, posZ) -> do
+          changeRoom state rid (\r -> let Vec3 _ _ z = cornerMean r in translateRoom (Vec3 0 0 (realToFrac posZ - z)) r)
 
 
 devSetup :: State -> IO ()
