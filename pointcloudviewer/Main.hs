@@ -812,6 +812,7 @@ input state (Char '-') Down _ _ = sPointSize state $~ (abs . subtract 1.0)
 input state (Char 'c') Down _ _ = clearRooms state
 input state (Char 'w') Down _ _ = connectWalls state Opposite
 input state (Char 'W') Down _ _ = connectWalls state Same
+input state (Char '\^W') Down _ _ = disconnectWalls state
 input state (Char 'o') Down _ _ = optimizeRoomPositions state
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
@@ -1611,6 +1612,26 @@ connectWalls State{ transient = TransientState{..}, ..} relation = do
                                           else (axis, relation, pid1, pid2):ws
         _ -> do
           putStrLn $ "The planes " ++ show (pid1, pid2) ++ " are not walls of different rooms!"
+
+    ps -> putStrLn $ show (length ps) ++ " walls selected, need 2"
+
+  -- Reset selected planes in any case
+  sSelectedPlanes $= []
+
+
+disconnectWalls :: State -> IO ()
+disconnectWalls State{ transient = TransientState{..}, ..} = do
+  get sSelectedPlanes >>= \case
+    [p1,p2] -> do
+      let pid1 = planeID p1
+          pid2 = planeID p2
+
+      putStrLn $ "Disconnecting walls " ++ show (pid1, pid2)
+
+      -- Keep all the other connections that are not (pid1,pid2)
+      connectedWalls <- get sConnectedWalls
+      sConnectedWalls $= [ ws | ws@(_, _, pidA, pidB) <- connectedWalls
+                              , (pidA,pidB) `notElem` [(pid1,pid2),(pid2,pid1)] ]
 
     ps -> putStrLn $ show (length ps) ++ " walls selected, need 2"
 
