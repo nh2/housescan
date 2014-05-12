@@ -1720,19 +1720,54 @@ devSetup state = do
 
   r <- loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
   -- changeRoom state (roomID r) (translateRoom (Vec3 10 0 0))
-  changeRoom state (roomID r) (\x -> x{ roomCorners =
-    [ Vec3 4.136416 0.8529552 4.406994
-    , Vec3 4.4101005 3.5105393 4.9701643
-    , Vec3 0.73565805 3.9981246 4.6329975
-    , Vec3 0.37607455 1.3853515 4.068618
-    , Vec3 0.46311855 2.1294374 0.744112
-    , Vec3 0.8107674 4.658209 1.2055379
-    , Vec3 4.833117 4.139892 1.4955193
-    , Vec3 4.5571914 1.541648 1.0290517
-    ] })
+  let corners = [ Vec3 4.136416 0.8529552 4.406994
+                , Vec3 4.4101005 3.5105393 4.9701643
+                , Vec3 0.73565805 3.9981246 4.6329975
+                , Vec3 0.37607455 1.3853515 4.068618
+                , Vec3 0.46311855 2.1294374 0.744112
+                , Vec3 0.8107674 4.658209 1.2055379
+                , Vec3 4.833117 4.139892 1.4955193
+                , Vec3 4.5571914 1.541648 1.0290517
+                ]
+  changeRoom state (roomID r) (\x -> x{ roomCorners = corners })
   fitCuboidToRoom state =<< (\(Just x) -> x) <$> getRoom state (roomID r)
   autoAlignFloor state =<< (\(Just x) -> x) <$> getRoom state (roomID r)
   -- void $ loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
+
+  Room{ roomID = i2 } <- loadRoom state "/mnt/3d-scans/rec3/elaroomb3/walls"
+  let corners2 = [ Vec3 10.608472 4.51529 5.832382
+                 , Vec3 10.653814 1.9463856 5.7815065
+                 , Vec3 15.091091 1.7071832 5.0023394
+                 , Vec3 15.009696 1.823618 1.5159857
+                 , Vec3 10.238615 2.0998633 1.7586492
+                 , Vec3 10.201798 4.722286 1.9030197
+                 , Vec3 15.1504545 4.5527396 1.6576861
+                 , Vec3 15.226275 4.385428 5.0235057
+                 ]
+  changeRoom state i2 $ translateRoom (Vec3 10 0 0)
+  changeRoom state i2 (\x -> x{ roomCorners = corners2 })
+  fitCuboidToRoom state =<< (\(Just x) -> x) <$> getRoom state i2
+  autoAlignFloor state =<< (\(Just x) -> x) <$> getRoom state i2
+
+
+  Room{ roomID = i3 } <- loadRoom state "/mnt/3d-scans/rec3/elaroomb3/walls"
+  let corners3 = [ Vec3 10.608472 4.51529 5.832382
+                 , Vec3 10.653814 1.9463856 5.7815065
+                 , Vec3 15.091091 1.7071832 5.0023394
+                 , Vec3 15.009696 1.823618 1.5159857
+                 , Vec3 10.238615 2.0998633 1.7586492
+                 , Vec3 10.201798 4.722286 1.9030197
+                 , Vec3 15.1504545 4.5527396 1.6576861
+                 , Vec3 15.226275 4.385428 5.0235057
+                 ]
+  changeRoom state i3 $ translateRoom (Vec3 10 0 0)
+  changeRoom state i3 (\x -> x{ roomCorners = corners3 })
+  fitCuboidToRoom state =<< (\(Just x) -> x) <$> getRoom state i3
+  autoAlignFloor state =<< (\(Just x) -> x) <$> getRoom state i3
+  changeRoom state i3 $ translateRoom (Vec3 0 10 0)
+
+
+  return ()
 
 
 -- | For debugging / ghci only.
