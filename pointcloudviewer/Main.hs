@@ -1695,6 +1695,12 @@ roomCenterOffsetFromWalls r1 r2 p1 p2 axis relation = case relation of
   Same     -> abs (norm (planeMean p1 &- cornerMean r1) - norm (planeMean p2 &- cornerMean r2))
 
 
+-- Infinite list of Cantor pairs:
+-- `(0 0) (0 1) (1 0) (0 2) (1 1) (2 0) (0 3) (1 2) (2 1) ...`
+diagonalPairs :: [ (Int, Int) ]
+diagonalPairs = [ (a, n-1-a) | n <- [1..], a <- [0..n-1] ]
+
+
 devSetup :: State -> IO ()
 devSetup state = do
   -- Coord planes
@@ -1705,52 +1711,21 @@ devSetup state = do
   addPlane state (Plane pid2 (PlaneEq (mkNormal $ Vec3 0 1 0) 0) (Color3 0 1 0) (V.fromList [Vec3 0 0 0, Vec3 5 0 0, Vec3 5 0 5, Vec3 0 0 5]))
   addPlane state (Plane pid3 (PlaneEq (mkNormal $ Vec3 0 0 1) 0) (Color3 0 0 1) (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 5 5 0, Vec3 5 0 0]))
 
-  r <- loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
-  let corners = [ Vec3 4.136416 0.8529552 4.406994
-                , Vec3 4.4101005 3.5105393 4.9701643
-                , Vec3 0.73565805 3.9981246 4.6329975
-                , Vec3 0.37607455 1.3853515 4.068618
-                , Vec3 0.46311855 2.1294374 0.744112
-                , Vec3 0.8107674 4.658209 1.2055379
-                , Vec3 4.833117 4.139892 1.4955193
-                , Vec3 4.5571914 1.541648 1.0290517
-                ]
-  changeRoom state (roomID r) (\x -> x{ roomCorners = corners })
-  fitCuboidToRoom state =<< (\(Just x) -> x) <$> getRoom state (roomID r)
-  autoAlignFloor state =<< (\(Just x) -> x) <$> getRoom state (roomID r)
-  -- void $ loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
+  let baseDir = "/home/niklas/uni/individualproject/recordings/rec3"
 
-  Room{ roomID = i2 } <- loadRoom state "/mnt/3d-scans/rec3/elaroomb3/walls"
-  let corners2 = [ Vec3 10.608472 4.51529 5.832382
-                 , Vec3 10.653814 1.9463856 5.7815065
-                 , Vec3 15.091091 1.7071832 5.0023394
-                 , Vec3 15.009696 1.823618 1.5159857
-                 , Vec3 10.238615 2.0998633 1.7586492
-                 , Vec3 10.201798 4.722286 1.9030197
-                 , Vec3 15.1504545 4.5527396 1.6576861
-                 , Vec3 15.226275 4.385428 5.0235057
-                 ]
-  changeRoom state i2 $ translateRoom (Vec3 10 0 0)
-  changeRoom state i2 (\x -> x{ roomCorners = corners2 })
-  fitCuboidToRoom state =<< (\(Just x) -> x) <$> getRoom state i2
-  autoAlignFloor state =<< (\(Just x) -> x) <$> getRoom state i2
+      roomNames = [ "elabathroom1"
+                  , "elakitchen1"
+                  , "elamiddle1"
+                  , "elaroom1"
+                  , "elarooma2"
+                  , "elaroomb3"
+                  ]
 
+  forM_ (zip roomNames diagonalPairs) $ \(roomName, (x,z)) -> do
 
-  Room{ roomID = i3 } <- loadRoom state "/mnt/3d-scans/rec3/elaroomb3/walls"
-  let corners3 = [ Vec3 10.608472 4.51529 5.832382
-                 , Vec3 10.653814 1.9463856 5.7815065
-                 , Vec3 15.091091 1.7071832 5.0023394
-                 , Vec3 15.009696 1.823618 1.5159857
-                 , Vec3 10.238615 2.0998633 1.7586492
-                 , Vec3 10.201798 4.722286 1.9030197
-                 , Vec3 15.1504545 4.5527396 1.6576861
-                 , Vec3 15.226275 4.385428 5.0235057
-                 ]
-  changeRoom state i3 $ translateRoom (Vec3 10 0 0)
-  changeRoom state i3 (\x -> x{ roomCorners = corners3 })
-  fitCuboidToRoom state =<< (\(Just x) -> x) <$> getRoom state i3
-  autoAlignFloor state =<< (\(Just x) -> x) <$> getRoom state i3
-  changeRoom state i3 $ translateRoom (Vec3 0 10 0)
+    Room{ roomID = i } <- loadRoom state (baseDir </> roomName </> "walls")
+    changeRoom state i $ translateRoom (Vec3 (6 * fromIntegral x) 0 (6 * fromIntegral z))
+    autoAlignFloor state =<< (\(Just r) -> r) <$> getRoom state i
 
 
   return ()
