@@ -922,6 +922,7 @@ mainState state@State{..} = do
   blendFunc   $= (SrcAlpha, OneMinusSrcAlpha)
   lineWidth   $= 3.0
   pointSize   $= 2.0
+  lineSmooth  $= Enabled
 
   -- Callbacks
   displayCallback       $= display state
