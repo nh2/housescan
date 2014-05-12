@@ -1646,7 +1646,7 @@ optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..
         desiredCenterOffsets =
           [ ((roomID r1, roomID r2), realToFrac $ o + signum o * wallDistance)
           | (p1, p2, r1, r2, ax, relation) <- wallsRooms, ax == axis
-          , let o = roomCenterOffsetFromWalls r1 r2 p1 p2 axis relation
+          , let o = roomCenterOffsetFromWalls r1 r2 p1 p2 axis
           , let wallDistance = case relation of Opposite -> wallThickness
                                                 Same     -> 0
           ]
@@ -1690,10 +1690,9 @@ cornerMean = pointMean . V.fromList . roomCorners
 
 
 -- Assumes rooms are perfect cuboids.
-roomCenterOffsetFromWalls :: Room -> Room -> Plane -> Plane -> Axis -> WallRelation -> Float
-roomCenterOffsetFromWalls r1 r2 p1 p2 axis relation = case relation of
-  Opposite -> getComponent axis $ (planeMean p1 &- cornerMean r1) &- (planeMean p2 &- cornerMean r2)
-  Same     -> getComponent axis $ (planeMean p1 &- cornerMean r1) &- (planeMean p2 &- cornerMean r2)
+roomCenterOffsetFromWalls :: Room -> Room -> Plane -> Plane -> Axis -> Float
+roomCenterOffsetFromWalls r1 r2 p1 p2 axis
+  = getComponent axis $ (planeMean p1 &- cornerMean r1) &- (planeMean p2 &- cornerMean r2)
 
 
 -- Infinite list of Cantor pairs:
