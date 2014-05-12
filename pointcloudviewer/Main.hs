@@ -1700,7 +1700,6 @@ devSetup state = do
   addPlane state (Plane pid3 (PlaneEq (mkNormal $ Vec3 0 0 1) 0) (Color3 0 0 1) (V.fromList [Vec3 0 0 0, Vec3 0 5 0, Vec3 5 5 0, Vec3 5 0 0]))
 
   r <- loadRoom state "/home/niklas/uni/individualproject/recordings/rec2/room4/walls-hulls"
-  -- changeRoom state (roomID r) (translateRoom (Vec3 10 0 0))
   let corners = [ Vec3 4.136416 0.8529552 4.406994
                 , Vec3 4.4101005 3.5105393 4.9701643
                 , Vec3 0.73565805 3.9981246 4.6329975
