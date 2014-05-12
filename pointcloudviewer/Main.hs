@@ -1693,7 +1693,7 @@ cornerMean = pointMean . V.fromList . roomCorners
 roomCenterOffsetFromWalls :: Room -> Room -> Plane -> Plane -> Axis -> WallRelation -> Float
 roomCenterOffsetFromWalls r1 r2 p1 p2 axis relation = case relation of
   Opposite -> getComponent axis $ (planeMean p1 &- cornerMean r1) &- (planeMean p2 &- cornerMean r2)
-  Same     -> abs (norm (planeMean p1 &- cornerMean r1) - norm (planeMean p2 &- cornerMean r2))
+  Same     -> getComponent axis $ (planeMean p1 &- cornerMean r1) &- (planeMean p2 &- cornerMean r2)
 
 
 -- Infinite list of Cantor pairs:
