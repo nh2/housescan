@@ -858,8 +858,8 @@ createState = do
   sMouse            <- newIORef ( 0, 0 )
   sDragMode         <- newIORef Nothing
   sSize             <- newIORef ( 0, 1 )
-  sRotUp            <- newIORef 0.0
-  sRotY             <- newIORef 0.0
+  sRotUp            <- newIORef 30
+  sRotY             <- newIORef (- 30)
   sZoom             <- newIORef 20.0
   sLookAtPoint      <- newIORef zero
   queuedClouds      <- newIORef Map.empty
