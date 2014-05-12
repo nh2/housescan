@@ -1508,8 +1508,8 @@ makePlanesFromCuboid state cuboidPoints cuboidCenter _cuboidDims@(Vec3 a b c) ro
                                        [c2,c3,c4] = sortBy (comparing (distance c1)) rest
                                     in [c1,c2,c4,c3]
           bounds =   V.fromList
-                   . (\l -> assert (length l == 4) l)
                    . reorderPolygon
+                   . (\l -> assert (length l == 4) l)
                    . filter ((< 1e-6) . abs . signedDistanceToPlaneEq eq)
                    $ cuboidPoints
 
