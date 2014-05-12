@@ -1628,84 +1628,35 @@ optimizeRoomPositions state@State{ transient = TransientState{..} } = do
       _WALL_THICKNESS = 0.5
       cornerMean = pointMean . V.fromList . roomCorners
 
+      getComponent X (Vec3 x _ _) = x
+      getComponent Y (Vec3 _ y _) = y
+      getComponent Z (Vec3 _ _ z) = z
+      d `along` X = Vec3 d 0 0
+      d `along` Y = Vec3 0 d 0
+      d `along` Z = Vec3 0 0 d
 
-  do -- X
-    let centerDistancesX = [ ((roomID r1, roomID r2),
-                             case relation of
-                               -- Opposite -> norm (planeMean p1 &- cornerMean r1) + norm (planeMean p2 &- cornerMean r2) + _WALL_THICKNESS -- TODO incorrect
-                               Opposite -> let Vec3 x _ _ = (planeMean p1 &- cornerMean r1) &- (planeMean p2 &- cornerMean r2) in x + signum x * _WALL_THICKNESS -- TODO incorrect
-                               Same     -> abs (norm (planeMean p1 &- cornerMean r1) - norm (planeMean p2 &- cornerMean r2))
-                             )
-                           | (p1, p2, r1, r2, X, relation) <- wallsRooms ]
+  -- We optimize translations along the 3 axes separately (they are independent)
+  forM_ [X,Y,Z] $ \axis -> do
+    let centerDistances :: [ ((ID, ID), Double) ]
+        centerDistances = [ ((roomID r1, roomID r2),
+                            realToFrac $ case relation of
+                              Opposite -> let comp = getComponent axis $ (planeMean p1 &- cornerMean r1) &- (planeMean p2 &- cornerMean r2)
+                                           in comp + signum comp * _WALL_THICKNESS
+                              Same     -> abs (norm (planeMean p1 &- cornerMean r1) - norm (planeMean p2 &- cornerMean r2))
+                            )
+                          | (p1, p2, r1, r2, ax, relation) <- wallsRooms, ax == axis ]
 
-        lx = [ ((id1, id2), realToFrac x) | ((id1, id2), x) <- centerDistancesX ]
-    print ("lx", lx)
-    let
-        optCentersX = Map.toList $ lstSqDistances (Map.fromList lx)
+        newRoomCenters = Map.toList $ lstSqDistances (Map.fromList centerDistances)
 
-    case [ r | (_,_,r,_,X,_) <- wallsRooms ] of
-      [] -> putStrLn $ "Don't need to align along X axis"
-      r1:_ -> do
-        let _firstRoomCenter@(Vec3 r1cx _ _) = cornerMean r1
-            optCentersXFromFirst = [ (x, pos + realToFrac r1cx) | (x, pos) <- optCentersX ]
+    case [ r | (_,_,r,_,ax,_) <- wallsRooms, ax == axis ] of
+      [] -> putStrLn $ "Don't need to align along " ++ show axis ++ " axis"
+      firstRoom:_ -> do
+        let firstRoomCenterComp = getComponent axis $ cornerMean firstRoom
+            newRoomCentersFromFirst = [ (i, pos + realToFrac firstRoomCenterComp) | (i, pos) <- newRoomCenters ]
 
-        print ("optCentersX", optCentersX)
-        print ("optCentersXFromFirst", optCentersXFromFirst)
-
-        forM_ optCentersXFromFirst $ \(rid, posX) -> do
-          changeRoom state rid (\r -> let Vec3 x _ _ = cornerMean r in translateRoom (Vec3 (realToFrac posX - x) 0 0) r)
-
-
-  do -- Y
-    let centerDistancesY = [ ((roomID r1, roomID r2),
-                             case relation of
-                               Opposite -> let Vec3 _ y _ = (planeMean p1 &- cornerMean r1) &- (planeMean p2 &- cornerMean r2) in y + signum y * _WALL_THICKNESS -- TODO incorrect
-                               Same     -> abs (norm (planeMean p1 &- cornerMean r1) - norm (planeMean p2 &- cornerMean r2))
-                             )
-                           | (p1, p2, r1, r2, Y, relation) <- wallsRooms ]
-
-        ly = [ ((id1, id2), realToFrac x) | ((id1, id2), x) <- centerDistancesY ]
-    print ("ly", ly)
-    let
-        optCentersY = Map.toList $ lstSqDistances (Map.fromList ly)
-
-    case [ r | (_,_,r,_,Y,_) <- wallsRooms ] of
-      [] -> putStrLn $ "Don't need to align along Y axis"
-      r1:_ -> do
-        let _firstRoomCenter@(Vec3 _ r1cy _) = cornerMean r1
-            optCentersYFromFirst = [ (y, pos + realToFrac r1cy) | (y, pos) <- optCentersY ]
-
-        print ("optCentersY", optCentersY)
-        print ("optCentersYFromFirst", optCentersYFromFirst)
-
-        forM_ optCentersYFromFirst $ \(rid, posY) -> do
-          changeRoom state rid (\r -> let Vec3 _ y _ = cornerMean r in translateRoom (Vec3 0 (realToFrac posY - y) 0) r)
-
-
-  do -- Z
-    let centerDistancesZ = [ ((roomID r1, roomID r2),
-                             case relation of
-                               Opposite -> let Vec3 _ _ z = (planeMean p1 &- cornerMean r1) &- (planeMean p2 &- cornerMean r2) in z + signum z * _WALL_THICKNESS -- TODO incorrect
-                               Same     -> abs (norm (planeMean p1 &- cornerMean r1) - norm (planeMean p2 &- cornerMean r2))
-                             )
-                           | (p1, p2, r1, r2, Z, relation) <- wallsRooms ]
-
-        lz = [ ((id1, id2), realToFrac z) | ((id1, id2), z) <- centerDistancesZ ]
-    print ("lz", lz)
-    let
-        optCentersZ = Map.toList $ lstSqDistances (Map.fromList lz)
-
-    case [ r | (_,_,r,_,Z,_) <- wallsRooms ] of
-      [] -> putStrLn $ "Don't need to align along Z axis"
-      r1:_ -> do
-        let _firstRoomCenter@(Vec3 _ _ r1cz) = cornerMean r1
-            optCentersZFromFirst = [ (z, pos + realToFrac r1cz) | (z, pos) <- optCentersZ ]
-
-        print ("optCentersZ", optCentersZ)
-        print ("optCentersZFromFirst", optCentersZFromFirst)
-
-        forM_ optCentersZFromFirst $ \(rid, posZ) -> do
-          changeRoom state rid (\r -> let Vec3 _ _ z = cornerMean r in translateRoom (Vec3 0 0 (realToFrac posZ - z)) r)
+        forM_ newRoomCentersFromFirst $ \(rid, newRoomCenterComp) -> do
+          changeRoom state rid (\r -> let comp = getComponent axis (cornerMean r)
+                                       in translateRoom ( (realToFrac newRoomCenterComp - comp) `along` axis) r)
 
 
 devSetup :: State -> IO ()
