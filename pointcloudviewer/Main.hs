@@ -1678,6 +1678,12 @@ optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..
         newRoomCenters :: Map ID Float
         newRoomCenters = realToFrac <$> lstSqDistances (Map.fromList desiredCenterOffsets)
 
+        -- TODO If we are working on an axis and have 4 rooms that are connected
+        --      pairwise and independent of each other, say A-B C-D, then
+        --      lstSqDistances will set both A and C to 0 and thus have them
+        --      fall together. Deal with that e.g. by doing optimisation
+        --      separately on connected components.
+
     -- Check if there is any room to move on this axis
     case [ r | (_,_,r,_,ax,_) <- wallsRooms, ax == axis ] of
       [] -> putStrLn $ "Don't need to align along " ++ show axis ++ " axis"
