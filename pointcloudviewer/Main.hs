@@ -7,7 +7,7 @@ module Main where
 
 import           Control.Applicative
 import           Control.Concurrent
-import           Control.Exception (assert)
+import           Control.Exception (assert, try)
 import           Control.Monad
 import           Data.Attoparsec.ByteString.Char8 (parseOnly, sepBy1', double, endOfLine, skipSpace)
 import           Data.Bits (unsafeShiftR)
@@ -1549,11 +1549,13 @@ load state = loadFrom state "save.safecopy"
 loadFrom :: State -> FilePath -> IO ()
 loadFrom state@State{ transient = TransientState{ sRooms } } path = do
   putStrLn $ "Loading rooms from " ++ path
-  runGet safeGet <$> BS.readFile path >>= \case
-    Left err -> putStrLn $ "Failed loading " ++ path ++ ": " ++ err
-    Right rooms -> do
-      sRooms $= rooms
-      forM_ (Map.elems rooms) (updateRoom state) -- allocates room clouds
+  try (BS.readFile path) >>= \case
+    Left (e :: IOError) -> print e
+    Right bs -> case runGet safeGet bs of
+      Left err -> putStrLn $ "Failed loading " ++ path ++ ": " ++ err
+      Right rooms -> do
+        sRooms $= rooms
+        forM_ (Map.elems rooms) (updateRoom state) -- allocates room clouds
 
 
 clearRooms :: State -> IO ()
