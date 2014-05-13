@@ -29,7 +29,6 @@ import           Data.Serialize.Get (runGet)
 import           Data.Serialize.Put (runPut)
 import qualified Data.Vect.Double as Vect.Double
 import           Data.Vect.Float hiding (Vector)
-import           Data.Vect.Float.Instances ()
 import           Data.Vect.Float.Util.Quaternion
 import           Data.Vector.Storable (Vector, (!))
 import qualified Data.Vector.Storable as V
@@ -75,6 +74,10 @@ instance (Typeable a) => Show (IORef a) where
   show x = "IORef " ++ show (typeOf x)
 
 
+-- Orphan instance so that we can derive Eq
+-- (Data.Vect.Float.Instances contains this but it also brings a Num instance
+-- with it which we don't want)
+instance Eq Vec3 where
 -- Orphan instance so that we can derive Ord
 instance Ord Vec3 where
 -- Really questionable why this isn't there already
@@ -1393,7 +1396,7 @@ loadRoom state dir = do
   -- Make all plane normals inward facing
   let roomCenter = cloudMean cloud
       makeInwardFacing p@Plane{ planeEq = PlaneEq n d }
-        = p{ planeEq = let inwardVec = roomCenter - planeMean p -- TODO use one point on plane instead of planeMean
+        = p{ planeEq = let inwardVec = roomCenter &- planeMean p -- TODO use one point on plane instead of planeMean
                            pointsInward = inwardVec `dotprod` fromNormal n > 0
                         in if pointsInward then PlaneEq n d
                                            else PlaneEq (flipNormal n) (-d)
