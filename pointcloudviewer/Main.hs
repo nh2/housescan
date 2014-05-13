@@ -1,5 +1,6 @@
 {-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase, MultiWayIf, ScopedTypeVariables, TypeSynonymInstances #-}
 {-# LANGUAGE DeriveGeneric, StandaloneDeriving, FlexibleContexts, TypeOperators, DeriveDataTypeable #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Main where
@@ -25,6 +26,9 @@ import           Data.Typeable
 import qualified Data.Packed.Matrix as Matrix
 import           Data.Packed.Matrix ((><))
 import qualified Data.Packed.Vector as HmatrixVec
+import           Data.SafeCopy
+import           Data.Serialize.Get (runGet)
+import           Data.Serialize.Put (runPut)
 import qualified Data.Vect.Double as Vect.Double
 import           Data.Vect.Float hiding (Vector)
 import           Data.Vect.Float.Instances ()
@@ -1545,26 +1549,37 @@ newEmptyCloud state = do
 
 
 save :: State -> IO ()
-save state = saveTo state "save.bin"
+save state = saveTo state "save.safecopy"
 
 
 saveTo :: State -> FilePath -> IO ()
 saveTo State{ transient = TransientState{ sRooms } } path = do
   putStrLn $ "Saving rooms to " ++ path
-  get sRooms >>= Binary.encodeFile path
+  rooms <- get sRooms
+  BS.writeFile path $ runPut (safePut rooms)
   putStrLn "saved"
 
 
 load :: State -> IO ()
-load state = loadFrom state "save.bin"
+load state = loadFrom state "save.safecopy"
 
 
 loadFrom :: State -> FilePath -> IO ()
 loadFrom state@State{ transient = TransientState{ sRooms } } path = do
   putStrLn $ "Loading rooms from " ++ path
-  rooms <- Binary.decodeFile path
-  sRooms $= rooms
-  forM_ (Map.elems rooms) (updateRoom state) -- allocates room clouds
+  runGet safeGet <$> BS.readFile path >>= \case
+    Left err -> putStrLn $ "Failed loading " ++ path ++ ": " ++ err
+    Right rooms -> do
+      sRooms $= rooms
+      forM_ (Map.elems rooms) (updateRoom state) -- allocates room clouds
+
+
+-- For backwards compatibility with when we used `binary` for saving.
+loadRoomsFromBinary :: FilePath -> IO (Map ID Room)
+loadRoomsFromBinary path = Binary.decodeFile path
+
+saveRoomsToSafecopy :: FilePath -> Map ID Room -> IO ()
+saveRoomsToSafecopy path rooms = BS.writeFile path $ runPut (safePut rooms)
 
 
 clearRooms :: State -> IO ()
@@ -1792,3 +1807,22 @@ dfl ps = do
   i <- genID state
   col <- getRandomColor
   addPointCloud state (Cloud i (OneColor col) (V.fromList ps))
+
+
+-- SafeCopy instances
+
+instance SafeCopy GLfloat where
+  putCopy f = contain $ safePut (realToFrac f :: Float)
+  getCopy = contain $ (realToFrac :: Float -> GLfloat) <$> safeGet
+
+instance SafeCopy a => SafeCopy (Color3 a) where
+  putCopy (Color3 r g b) = contain $ do safePut r; safePut g; safePut b
+  getCopy = contain $ Color3 <$> safeGet <*> safeGet <*> safeGet
+
+deriveSafeCopy 1 'base ''Vec3
+deriveSafeCopy 1 'base ''CloudColor
+deriveSafeCopy 1 'base ''Cloud
+deriveSafeCopy 1 'base ''Normal3
+deriveSafeCopy 1 'base ''PlaneEq
+deriveSafeCopy 1 'base ''Plane
+deriveSafeCopy 1 'base ''Room
