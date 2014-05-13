@@ -148,51 +148,50 @@ instance (ShortShow a, ShortShow b) => ShortShow (Map a b) where
 -- TODO make all State/TransientState fields strict so that we get an error if not initialized
 
 -- |Application state
-data State
-  = State { sMouse :: IORef ( GLint, GLint )
-          , sDragMode :: IORef (Maybe DragMode)
-          , sSize :: IORef ( GLint, GLint )
-          , sLookAtPoint :: IORef Vec3 -- ^ focus point around which we rotate
-          , sRotUp :: IORef Float -- ^ view angle (degrees) away from the ground plane
-          , sRotY :: IORef Float -- ^ angle (degrees) around the up axis (Y in OpenGL), orthogonal to ground plane
-          , sZoom :: IORef Float
-          , queuedClouds :: IORef (Map ID Cloud)
-          , sFps :: IORef Int
-          -- | Both `display` and `idle` set this to the current time
-          -- after running
-          , sLastLoopTime :: IORef (Maybe Int64)
-          -- Things needed for hot code reloading
-          , sRestartRequested :: IORef Bool
-          , sGlInitialized :: IORef Bool
-          , sRestartFunction :: IORef (IO ())
-          -- Object picking
-          , sPickingDisabled :: IORef Bool
-          , sPickObjectAt :: IORef (Maybe ((Int,Int), Maybe ID -> IO ()))
-          , sUnderCursor :: IORef (Maybe ID)
-          , sDebugPickingDrawVisible :: IORef Bool
-          , sDebugPickingTiming :: IORef Bool
-          -- Room optimisation settings
-          , sWallThickness :: IORef Float
-          -- Displaying options
-          , sDisplayPlanes :: IORef Bool
-          , sDisplayClouds :: IORef Bool
-          , sPointSize :: IORef Float
-          -- Visual debugging
-          , sDebugProjectPlanePointsToEq :: IORef Bool
-          -- Transient state
-          , transient :: TransientState
-          } deriving (Generic)
+data State = State
+  { sMouse                         :: !(IORef ( GLint, GLint ))
+  , sDragMode                      :: !(IORef (Maybe DragMode))
+  , sSize                          :: !(IORef ( GLint, GLint ))
+  , sLookAtPoint                   :: !(IORef Vec3) -- ^ focus point around which we rotate
+  , sRotUp                         :: !(IORef Float) -- ^ view angle (degrees) away from the ground plane
+  , sRotY                          :: !(IORef Float) -- ^ angle (degrees) around the up axis (Y in OpenGL), orthogonal to ground plane
+  , sZoom                          :: !(IORef Float)
+  , queuedClouds                   :: !(IORef (Map ID Cloud))
+  , sFps                           :: !(IORef Int)
+  -- | Both `display` and `idle` set this to the current time after running
+  , sLastLoopTime                  :: !(IORef (Maybe Int64))
+  -- Things needed for hot code reloading
+  , sRestartRequested              :: !(IORef Bool)
+  , sGlInitialized                 :: !(IORef Bool)
+  , sRestartFunction               :: !(IORef (IO ()))
+  -- Object picking
+  , sPickingDisabled               :: !(IORef Bool)
+  , sPickObjectAt                  :: !(IORef (Maybe ((Int,Int), Maybe ID -> IO ())))
+  , sUnderCursor                   :: !(IORef (Maybe ID))
+  , sDebugPickingDrawVisible       :: !(IORef Bool)
+  , sDebugPickingTiming            :: !(IORef Bool)
+  -- Room optimisation settings
+  , sWallThickness                 :: !(IORef Float)
+  -- Displaying options
+  , sDisplayPlanes                 :: !(IORef Bool)
+  , sDisplayClouds                 :: !(IORef Bool)
+  , sPointSize                     :: !(IORef Float)
+  -- Visual debugging
+  , sDebugProjectPlanePointsToEq   :: !(IORef Bool)
+  -- Transient state
+  , transient                      :: !(TransientState)
+  } deriving (Generic)
 
-data TransientState
-  = TransientState { sNextID :: IORef ID
-                   , sPickingMode :: IORef Bool
-                   , sAllocatedClouds :: IORef (Map ID (Cloud, BufferObject, Maybe BufferObject)) -- second is for colours
-                   , sPlanes :: IORef (Map ID Plane)
-                   , sSelectedPlanes :: IORef [Plane]
-                   , sRooms :: IORef (Map ID Room)
-                   , sSelectedRoom :: IORef (Maybe Room)
-                   , sConnectedWalls :: IORef [(Axis, WallRelation, ID, ID)]
-                   }
+data TransientState = TransientState
+  { sNextID                        :: !(IORef ID)
+  , sPickingMode                   :: !(IORef Bool)
+  , sAllocatedClouds               :: !(IORef (Map ID (Cloud, BufferObject, Maybe BufferObject))) -- second is for colours
+  , sPlanes                        :: !(IORef (Map ID Plane))
+  , sSelectedPlanes                :: !(IORef [Plane])
+  , sRooms                         :: !(IORef (Map ID Room))
+  , sSelectedRoom                  :: !(IORef (Maybe Room))
+  , sConnectedWalls                :: !(IORef [(Axis, WallRelation, ID, ID)])
+  }
 
 instance Show TransientState where
   show _ = "TransientState"
