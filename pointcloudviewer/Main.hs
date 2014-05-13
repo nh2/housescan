@@ -11,8 +11,6 @@ import           Control.Exception (assert)
 import           Control.Monad
 import           Data.Attoparsec.ByteString.Char8 (parseOnly, sepBy1', double, endOfLine, skipSpace)
 import           Data.Bits (unsafeShiftR)
-import qualified Data.Binary as Binary
-import           Data.Binary (Binary)
 import qualified Data.ByteString as BS
 import           Data.Foldable (for_)
 import           Data.IORef
@@ -36,7 +34,7 @@ import           Data.Vect.Float.Util.Quaternion
 import           Data.Vector.Storable (Vector, (!))
 import qualified Data.Vector.Storable as V
 import           Data.Word
-import           Foreign.C.Types (CInt, CFloat(..))
+import           Foreign.C.Types (CInt)
 import           Foreign.Marshal.Alloc (alloca)
 import           Foreign.Ptr (Ptr, nullPtr)
 import           Foreign.Storable (peek)
@@ -224,22 +222,6 @@ data Axis = X | Y | Z
 
 data WallRelation = Opposite | Same
   deriving (Eq, Ord, Show, Generic)
-
-
-deriving instance Generic Vec3
-instance Binary Vec3
-instance Binary Normal3 where
-  get = mkNormal <$> Binary.get
-  put = Binary.put . fromNormal
-deriving instance Generic CFloat
-instance Binary CFloat
-deriving instance Generic a => Generic (Color3 a)
-instance (Binary a, Generic a) => Binary (Color3 a)
-instance Binary CloudColor
-instance Binary Cloud
-instance Binary PlaneEq
-instance Binary Plane
-instance Binary Room
 
 
 type ID = Word32
@@ -1572,14 +1554,6 @@ loadFrom state@State{ transient = TransientState{ sRooms } } path = do
     Right rooms -> do
       sRooms $= rooms
       forM_ (Map.elems rooms) (updateRoom state) -- allocates room clouds
-
-
--- For backwards compatibility with when we used `binary` for saving.
-loadRoomsFromBinary :: FilePath -> IO (Map ID Room)
-loadRoomsFromBinary path = Binary.decodeFile path
-
-saveRoomsToSafecopy :: FilePath -> Map ID Room -> IO ()
-saveRoomsToSafecopy path rooms = BS.writeFile path $ runPut (safePut rooms)
 
 
 clearRooms :: State -> IO ()
