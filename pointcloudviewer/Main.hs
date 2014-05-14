@@ -77,9 +77,9 @@ instance (Typeable a) => Show (IORef a) where
 -- Orphan instance so that we can derive Eq
 -- (Data.Vect.Float.Instances contains this but it also brings a Num instance
 -- with it which we don't want)
-instance Eq Vec3 where
+deriving instance Eq Vec3
 -- Orphan instance so that we can derive Ord
-instance Ord Vec3 where
+deriving instance Ord Vec3
 -- Really questionable why this isn't there already
 instance Eq Normal3 where
   n1 == n2 = fromNormal n1 == fromNormal n2
