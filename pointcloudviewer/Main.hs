@@ -1825,6 +1825,40 @@ devSetup state = do
   return ()
 
 
+sleep :: Double -> IO ()
+sleep t = threadDelay $ floor (t * 1e6)
+
+
+projTest :: State -> IO ()
+projTest state = do
+  Room{ roomID = i } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+  sleep 1
+  changeRoom state i (translateRoom (Vec3 6 0 0))
+  sleep 1
+  changeRoom state i (rotateRoom (rotMatrix3 vec3X (toRad 90)))
+
+  Just Room{ roomProj = proj } <- getRoom state i
+
+  sleep 1
+  Room{ roomID = i2 } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+  sleep 1
+  changeRoom state i2 (projectRoom proj)
+
+
+projTest2 :: State -> IO ()
+projTest2 state = do
+  Room{ roomID = i } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+  sleep 1
+  changeRoom state i (rotateRoom (rotMatrix3 vec3X (toRad 10)))
+
+  Just Room{ roomProj = proj } <- getRoom state i
+
+  sleep 1
+  Room{ roomID = i2 } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+  sleep 1
+  changeRoom state i2 (projectRoom proj)
+
+
 -- Chop of top 20% of points to peek inside
 removeCeiling :: Room -> Room
 removeCeiling r@Room{ roomCloud = c@Cloud{ cloudPoints = oldCloudPoints
