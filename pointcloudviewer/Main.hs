@@ -1894,6 +1894,22 @@ projTest2 state = do
   changeRoom state i2 (projectRoom proj)
 
 
+projTest3 :: State -> IO ()
+projTest3 state = do
+  Room{ roomID = i } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+  sleep 1
+  changeRoom state i (translateRoom (Vec3 6 0 0))
+  sleep 1
+  autoAlignFloor state =<< (\(Just r) -> r) <$> getRoom state i
+
+  Just Room{ roomProj = proj } <- getRoom state i
+
+  sleep 1
+  Room{ roomID = i2 } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+  sleep 1
+  changeRoom state i2 (projectRoom proj)
+
+
 -- Chop of top 20% of points to peek inside
 removeCeiling :: Room -> Room
 removeCeiling r@Room{ roomCloud = c@Cloud{ cloudPoints = oldCloudPoints
