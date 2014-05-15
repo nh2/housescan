@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase, MultiWayIf, ScopedTypeVariables, TypeSynonymInstances #-}
 {-# LANGUAGE DeriveGeneric, StandaloneDeriving, FlexibleContexts, TypeOperators, DeriveDataTypeable #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -81,8 +82,16 @@ instance (Typeable a) => Show (IORef a) where
 -- (Data.Vect.Float.Instances contains this but it also brings a Num instance
 -- with it which we don't want)
 deriving instance Eq Vec3
+deriving instance Eq Vec4
+deriving instance Eq Mat4
+instance Eq Proj4 where
+  a == b = fromProjective a == fromProjective b
 -- Orphan instance so that we can derive Ord
 deriving instance Ord Vec3
+deriving instance Ord Vec4
+deriving instance Ord Mat4
+instance Ord Proj4 where
+  a `compare` b = fromProjective a `compare` fromProjective b
 -- Really questionable why this isn't there already
 instance Eq Normal3 where
   n1 == n2 = fromNormal n1 == fromNormal n2
@@ -130,9 +139,10 @@ instance ShortShow Plane where
     ]
 
 instance ShortShow Room where
-  shortShow (Room i planes cloud corners) = "Room" ++ concat
+  shortShow (Room i planes cloud corners proj) = "Room" ++ concat
     [ " ", show i, " ", shortShow planes, " (", shortShow cloud, ")"
     , " ", show corners
+    , " ", show proj
     ]
 
 instance ShortShow Word32 where
@@ -213,11 +223,20 @@ planeNormal :: Plane -> Vec3
 planeNormal Plane{ planeEq = PlaneEq n _ } = fromNormal n
 
 
+data Room_v1 = Room_v1 -- deprecated
+  { roomID_v1      :: !ID
+  , roomPlanes_v1  :: ![Plane]
+  , roomCloud_v1   :: Cloud
+  , roomCorners_v1 :: [Vec3] -- TODO newtype this
+  } deriving (Eq, Ord, Show, Generic)
+
+
 data Room = Room
   { roomID      :: !ID
   , roomPlanes  :: ![Plane]
   , roomCloud   :: Cloud
   , roomCorners :: [Vec3] -- TODO newtype this
+  , roomProj    :: !Proj4
   } deriving (Eq, Ord, Show, Generic)
 
 
@@ -805,6 +824,7 @@ input state (Char 'w') Down _ _ = connectWalls state Opposite
 input state (Char 'W') Down _ _ = connectWalls state Same
 input state (Char '\^W') Down _ _ = disconnectWalls state
 input state (Char 'o') Down _ _ = optimizeRoomPositions state
+input state (Char 'e') Down _ _ = exportRoomProjection state
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
 
@@ -1347,10 +1367,13 @@ roomMean Room{ roomCloud } = cloudMean roomCloud
 
 
 rotateRoomAround :: Vec3 -> Mat3 -> Room -> Room
-rotateRoomAround rotCenter rotMat r@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomCorners = oldCorners }
+rotateRoomAround rotCenter rotMat r@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomCorners = oldCorners, roomProj = oldProj }
   = r{ roomPlanes = map (rotatePlaneAround rotCenter rotMat) oldPlanes
      , roomCloud = rotateCloudAround rotCenter rotMat oldCloud
      , roomCorners = map (rotateAround rotCenter rotMat) oldCorners
+     -- `linear rotMat` is left-multiplied (insted of right for Proj4) because
+     --  it is a Mat4, not a Proj4.
+     , roomProj = translate4 rotCenter . (linear rotMat .*.) . translate4 (neg rotCenter) $ oldProj
      }
 
 rotateRoom :: Mat3 -> Room -> Room
@@ -1379,11 +1402,29 @@ translateCloud off c@Cloud{ cloudPoints = oldPoints }
 
 
 translateRoom :: Vec3 -> Room -> Room
-translateRoom off room@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomCorners = oldCorners  }
+translateRoom off room@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomCorners = oldCorners, roomProj = oldProj }
   = room{ roomPlanes = map (translatePlane off) oldPlanes
         , roomCloud = translateCloud off oldCloud
         , roomCorners = map (off &+) oldCorners
+        , roomProj = translate4 off oldProj
         }
+
+
+projectRoom :: Proj4 -> Room -> Room
+projectRoom proj room@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomCorners = oldCorners, roomProj = oldProj }
+  = room{ roomPlanes = map (translatePlane off . rotatePlaneAround (roomMean room) rotMat) oldPlanes
+        , roomCloud = (translateCloud off . rotateCloudAround (roomMean room) rotMat) oldCloud
+        -- TODO Change this so that it doesn't assume the scaling factor is 1 (so scale the result)
+        , roomCorners = map (trim . (.* fromProjective proj) . (extendWith 1 :: Vec3 -> Vec4)) oldCorners
+        , roomProj = oldProj .*. proj
+        }
+  where
+    Mat4 (Vec4  a  b  c _)
+         (Vec4  d  e  f _)
+         (Vec4  g  h  i _)
+         (Vec4 tx ty tz _) = fromProjective proj
+    off = Vec3 tx ty tz
+    rotMat = Mat3 (Vec3 a b c) (Vec3 d e f) (Vec3 g h i)
 
 
 -- Clouds recored with Kinfu clouds are always heads-up.
@@ -1407,7 +1448,7 @@ loadRoom state dir = do
   planes <- map makeInwardFacing <$> planesFromDir state dir
 
   i <- genID state
-  let room = rotateKinfuRoom $ Room i planes cloud []
+  let room = rotateKinfuRoom $ Room i planes cloud [] one
   updateRoom state room
   putStrLn $ "Room " ++ show i ++ " loaded"
   return room
@@ -1718,6 +1759,30 @@ roomCenterOffsetFromWalls r1 r2 p1 p2 axis
   = getComponent axis $ (planeMean p1 &- cornerMean r1) &- (planeMean p2 &- cornerMean r2)
 
 
+exportRoomProjection :: State -> IO ()
+exportRoomProjection State{ transient = TransientState{ sSelectedRoom } } = do
+  get sSelectedRoom >>= \case
+    Nothing -> putStrLn "no room selected"
+    Just r -> do
+      putStrLn $ roomProjectionToString r
+
+
+roomProjectionToString :: Room -> String
+roomProjectionToString Room{ roomProj }
+  = intercalate "," $ map show [a,b,c,d
+                               ,e,f,g,h
+                               ,i,j,k,l
+                               ,m,n,o,p]
+  where
+    -- `roomProj :: Proj4` uses right-multiplication and so stores the
+    -- 4x4 transposed to how most applications deal with it. We want to
+    -- export the left-multiplicative form, so we have to transpose.
+    Mat4 (Vec4 a b c d)
+         (Vec4 e f g h)
+         (Vec4 i j k l)
+         (Vec4 m n o p) = transpose $ fromProjective roomProj
+
+
 -- Infinite list of Cantor pairs:
 -- `(0 0) (0 1) (1 0) (0 2) (1 1) (2 0) (0 3) (1 2) (2 1) ...`
 diagonalPairs :: [ (Int, Int) ]
@@ -1801,9 +1866,16 @@ instance SafeCopy a => SafeCopy (Color3 a) where
   getCopy = contain $ Color3 <$> safeGet <*> safeGet <*> safeGet
 
 deriveSafeCopy 1 'base ''Vec3
+deriveSafeCopy 1 'base ''Vec4
+deriveSafeCopy 1 'base ''Mat4
+deriveSafeCopy 1 'base ''Proj4
 deriveSafeCopy 1 'base ''CloudColor
 deriveSafeCopy 1 'base ''Cloud
 deriveSafeCopy 1 'base ''Normal3
 deriveSafeCopy 1 'base ''PlaneEq
 deriveSafeCopy 1 'base ''Plane
-deriveSafeCopy 1 'base ''Room
+deriveSafeCopy 1 'base ''Room_v1
+deriveSafeCopy 2 'extension ''Room
+instance Migrate Room where
+  type MigrateFrom Room = Room_v1
+  migrate (Room_v1 i planes cloud corners) = Room i planes cloud corners one
