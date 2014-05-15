@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase, MultiWayIf, ScopedTypeVariables, TypeSynonymInstances #-}
 {-# LANGUAGE DeriveGeneric, StandaloneDeriving, FlexibleContexts, TypeOperators, DeriveDataTypeable #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -60,6 +61,7 @@ import           VectorUtil (kthLargestBy)
 -- Things needed to `show` the Generic representation of our `State`,
 -- which we use to check if the State type changed when doing hot code
 -- reloading in in-place restarts in ghci.
+#if __GLASGOW_HASKELL__ <= 706
 deriving instance Show (V1 p)
 deriving instance Show (U1 p)
 deriving instance (Show c) => Show (K1 i c p)
@@ -69,6 +71,7 @@ deriving instance (Show (f p), Show (g p)) => Show ((f :+:g) p)
 deriving instance Show D
 deriving instance Show C
 deriving instance Show S
+#endif
 
 instance (Typeable a) => Show (IORef a) where
   show x = "IORef " ++ show (typeOf x)
