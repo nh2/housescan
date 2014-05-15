@@ -1448,8 +1448,11 @@ loadRoom state dir = do
   planes <- map makeInwardFacing <$> planesFromDir state dir
 
   i <- genID state
-  let room = rotateKinfuRoom $ Room i planes cloud [] one
+  let room = Room i planes cloud [] one
   updateRoom state room
+  -- Note that we should not further modify the room in this function,
+  -- since we desire that loadRoom returns it both as represented in
+  -- the data file and with `roomProj` set to identity.
   putStrLn $ "Room " ++ show i ++ " loaded"
   return room
 
@@ -1812,6 +1815,7 @@ devSetup state = do
   forM_ (zip roomNames diagonalPairs) $ \(roomName, (x,z)) -> do
 
     Room{ roomID = i } <- loadRoom state (baseDir </> roomName </> "walls")
+    changeRoom state i $ rotateKinfuRoom
     changeRoom state i $ translateRoom (Vec3 (6 * fromIntegral x) 0 (6 * fromIntegral z))
     autoAlignFloor state =<< (\(Just r) -> r) <$> getRoom state i
 
