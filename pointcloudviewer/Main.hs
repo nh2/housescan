@@ -1812,7 +1812,7 @@ devSetup state = do
                   , "elaroomb3"
                   ]
 
-  forM_ (zip roomNames diagonalPairs) $ \(roomName, (x,z)) -> do
+  ids <- forM (zip roomNames diagonalPairs) $ \(roomName, (x,z)) -> do
 
     Room{ roomID = i } <- loadRoom state (baseDir </> roomName </> "walls")
     changeRoom state i $ rotateKinfuRoom
@@ -1820,6 +1820,16 @@ devSetup state = do
     autoAlignFloor state =<< (\(Just r) -> r) <$> getRoom state i
 
     changeRoom state i $ removeCeiling
+
+    return i
+
+
+  forM_ (zip roomNames ids) $ \(roomName, i) -> do
+
+    projStr <- roomProjectionToString . (\(Just r) -> r) <$> getRoom state i
+    putStrLn $ "~/src/pcl/pcl/build/bin/pcl_transform_point_cloud"
+               ++ " ../" ++ roomName ++ "/cloud_bin.pcd " ++ roomName ++ "-placed.pcd"
+               ++ " -matrix " ++ projStr
 
 
   return ()
