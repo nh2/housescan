@@ -820,6 +820,7 @@ input state (Char 'p') Down _ _ = sDisplayClouds state $~ not
 input state (Char '+') Down _ _ = sPointSize state $~ (+ 1.0)
 input state (Char '-') Down _ _ = sPointSize state $~ (abs . subtract 1.0)
 input state (Char 'c') Down _ _ = clearRooms state
+input state (Char '#') Down _ _ = swapRoomPositions state
 input state (Char 'w') Down _ _ = connectWalls state Opposite
 input state (Char 'W') Down _ _ = connectWalls state Same
 input state (Char '\^W') Down _ _ = disconnectWalls state
@@ -1626,6 +1627,30 @@ clearRooms State{ transient = TransientState{ sRooms, sConnectedWalls, sAllocate
         sAllocatedClouds $~ Map.delete cloudID
 
   sConnectedWalls $= []
+
+
+swapRoomPositions :: State -> IO ()
+swapRoomPositions state@State{ transient = TransientState{..}, ..} = do
+  get sSelectedPlanes >>= \case
+    [p1,p2] -> do
+      let pid1 = planeID p1
+          pid2 = planeID p2
+      rooms <- Map.elems <$> get sRooms
+      case (findRoomContainingPlane rooms pid1, findRoomContainingPlane rooms pid2) of
+        (Just room1, Just room2) -> do
+          putStrLn $ "Swapping rooms " ++ show (roomID room1, roomID room2)
+          let m1 = roomMean room1
+              m2 = roomMean room2
+          -- Swap the two rooms
+          changeRoom state (roomID room1) (translateRoom (m2 &- m1))
+          changeRoom state (roomID room2) (translateRoom (m1 &- m2))
+        _ -> do
+          putStrLn $ "The planes " ++ show (pid1, pid2) ++ " are not walls of different rooms!"
+
+    ps -> putStrLn $ show (length ps) ++ " walls selected, need 2"
+
+  -- Reset selected planes in any case
+  sSelectedPlanes $= []
 
 
 connectWalls :: State -> WallRelation -> IO ()
