@@ -1870,9 +1870,25 @@ sleep :: Double -> IO ()
 sleep t = threadDelay $ floor (t * 1e6)
 
 
+elaroom1corners :: [Vec3]
+elaroom1corners
+  = [ Vec3 0.5213087 1.3714368 0.9477334
+  , Vec3 0.6015281 0.7033132 4.419407
+  , Vec3 4.8369703 1.2523801 4.0971937
+  , Vec3 4.4101005 1.8874655 0.5908974
+  , Vec3 0.3593011 4.1540117 0.914716
+  , Vec3 4.14219 4.488981 1.1421864
+  , Vec3 4.5736876 3.750552 4.565998
+  , Vec3 0.46467793 3.254958 4.8851647
+  ]
+
+
 projTest :: State -> IO ()
 projTest state = do
   Room{ roomID = i } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+
+  changeRoom state i (\x -> x{ roomCorners = elaroom1corners })
+
   sleep 1
   changeRoom state i (translateRoom (Vec3 6 0 0))
   sleep 1
@@ -1882,6 +1898,7 @@ projTest state = do
 
   sleep 1
   Room{ roomID = i2 } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+  changeRoom state i2 (\x -> x{ roomCorners = elaroom1corners })
   sleep 1
   changeRoom state i2 (projectRoom proj)
 
@@ -1889,6 +1906,9 @@ projTest state = do
 projTest2 :: State -> IO ()
 projTest2 state = do
   Room{ roomID = i } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+
+  changeRoom state i (\x -> x{ roomCorners = elaroom1corners })
+
   sleep 1
   changeRoom state i (rotateRoom (rotMatrix3 vec3X (toRad 10)))
 
@@ -1896,6 +1916,7 @@ projTest2 state = do
 
   sleep 1
   Room{ roomID = i2 } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+  changeRoom state i2 (\x -> x{ roomCorners = elaroom1corners })
   sleep 1
   changeRoom state i2 (projectRoom proj)
 
@@ -1903,17 +1924,84 @@ projTest2 state = do
 projTest3 :: State -> IO ()
 projTest3 state = do
   Room{ roomID = i } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
-  sleep 1
-  changeRoom state i (translateRoom (Vec3 6 0 0))
+
+  changeRoom state i (\x -> x{ roomCorners = elaroom1corners })
+
   sleep 1
   autoAlignFloor state =<< (\(Just r) -> r) <$> getRoom state i
+  sleep 1
+  changeRoom state i (translateRoom (Vec3 6 0 0))
 
   Just Room{ roomProj = proj } <- getRoom state i
 
   sleep 1
   Room{ roomID = i2 } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+  changeRoom state i2 (\x -> x{ roomCorners = elaroom1corners })
   sleep 1
   changeRoom state i2 (projectRoom proj)
+  return ()
+
+
+projTest4 :: State -> IO ()
+projTest4 state = do
+  Room{ roomID = i } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+
+  changeRoom state i (\x -> x{ roomCorners = elaroom1corners })
+
+  sleep 1
+  changeRoom state i (translateRoom (Vec3 0 0 6))
+  sleep 1
+  changeRoom state i (rotateRoomAround (Vec3 0 0 0) (rotMatrix3 vec3X (toRad 10)))
+
+  Just Room{ roomProj = proj } <- getRoom state i
+
+  sleep 1
+  Room{ roomID = i2 } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+  changeRoom state i2 (\x -> x{ roomCorners = elaroom1corners })
+  sleep 1
+  changeRoom state i2 (projectRoom proj)
+
+
+projTest5 :: State -> IO ()
+projTest5 state = do
+  Room{ roomID = i } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+
+  changeRoom state i (\x -> x{ roomCorners = elaroom1corners })
+
+  sleep 1
+  changeRoom state i (translateRoom (Vec3 1 2 6))
+
+  Just Room{ roomProj = proj } <- getRoom state i
+
+  sleep 1
+  Room{ roomID = i2 } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+  changeRoom state i2 (\x -> x{ roomCorners = elaroom1corners })
+  sleep 1
+  changeRoom state i2 (projectRoom proj)
+
+
+projTest6 :: State -> IO ()
+projTest6 state = do
+  Room{ roomID = i } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+
+  sleep 1
+  let rotMat = rotMatrix3 vec3X (toRad 10)
+  changeRoom state i (rotateRoomAround (Vec3 0 0 0) rotMat)
+
+  Just Room{ roomProj = unusedProj } <- getRoom state i
+
+  let proj = linear rotMat
+
+  sleep 1
+  Room{ roomID = i2 } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
+  changeRoom state i2 (\x -> x{ roomCorners = elaroom1corners })
+  sleep 1
+  changeRoom state i2 (projectRoom proj)
+
+  Just Room{ roomProj = proj2 } <- getRoom state i2
+  assert (proj == proj2) $ return ()
+  putStrLn $ "proj   " ++ show proj
+  putStrLn $ "unused " ++ show unusedProj
 
 
 -- Chop of top 20% of points to peek inside
