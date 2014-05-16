@@ -5,6 +5,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
+-- | Design notes:
+--
+-- * All matrices are right-multiplied: `v' = x .* A`.
 module Main where
 
 import           Control.Applicative
@@ -236,7 +239,7 @@ data Room = Room
   , roomPlanes  :: ![Plane]
   , roomCloud   :: Cloud
   , roomCorners :: [Vec3] -- TODO newtype this
-  , roomProj    :: !Proj4
+  , roomProj    :: !Proj4 -- ^ How the room was moved/rotated versus the origin.
   } deriving (Eq, Ord, Show, Generic)
 
 
@@ -1372,9 +1375,9 @@ rotateRoomAround rotCenter rotMat r@Room{ roomPlanes = oldPlanes, roomCloud = ol
   = r{ roomPlanes = map (rotatePlaneAround rotCenter rotMat) oldPlanes
      , roomCloud = rotateCloudAround rotCenter rotMat oldCloud
      , roomCorners = map (rotateAround rotCenter rotMat) oldCorners
-     -- `linear rotMat` is left-multiplied (insted of right for Proj4) because
-     --  it is a Mat4, not a Proj4.
-     , roomProj = translate4 rotCenter . (linear rotMat .*.) . translate4 (neg rotCenter) $ oldProj
+     -- `linear rotMat` is right-multiplied since we use right-multiplication
+     -- for everything else as well (otherwise we'd have to transpose it).
+     , roomProj = translate4 rotCenter . (.*. linear rotMat) . translate4 (neg rotCenter) $ oldProj
      }
 
 rotateRoom :: Mat3 -> Room -> Room
@@ -1413,17 +1416,20 @@ translateRoom off room@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomC
 
 projectRoom :: Proj4 -> Room -> Room
 projectRoom proj room@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomCorners = oldCorners, roomProj = oldProj }
-  = room{ roomPlanes = map (translatePlane off . rotatePlaneAround (roomMean room) rotMat) oldPlanes
-        , roomCloud = (translateCloud off . rotateCloudAround (roomMean room) rotMat) oldCloud
+  = room -- `roomProj` is always a projection versus the origin, so rotate around that.
+        { roomPlanes = map (translatePlane off . rotatePlaneAround zero rotMat) oldPlanes
+        , roomCloud = (translateCloud off . rotateCloudAround zero rotMat) oldCloud
         -- TODO Change this so that it doesn't assume the scaling factor is 1 (so scale the result)
-        , roomCorners = map (trim . (.* fromProjective proj) . (extendWith 1 :: Vec3 -> Vec4)) oldCorners
+        , roomCorners = map (myTrim . (.* fromProjective proj) . (extendWith 1 :: Vec3 -> Vec4)) oldCorners
         , roomProj = oldProj .*. proj
         }
   where
-    Mat4 (Vec4  a  b  c _)
-         (Vec4  d  e  f _)
-         (Vec4  g  h  i _)
-         (Vec4 tx ty tz _) = fromProjective proj
+    myTrim (Vec4 x y z 1) = Vec3 x y z
+    myTrim _              = error "myTrim"
+    Mat4 (Vec4  a  b  c 0)
+         (Vec4  d  e  f 0)
+         (Vec4  g  h  i 0)
+         (Vec4 tx ty tz 1) = fromProjective proj
     off = Vec3 tx ty tz
     rotMat = Mat3 (Vec3 a b c) (Vec3 d e f) (Vec3 g h i)
 
