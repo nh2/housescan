@@ -1835,27 +1835,92 @@ devSetup state = do
 
   let baseDir = "/home/niklas/uni/individualproject/recordings/rec3"
 
-      roomNames = [ "elabathroom1"
-                  , "elakitchen1"
-                  , "elamiddle1"
-                  , "elaroom1"
-                  , "elarooma2"
-                  , "elaroomb3"
-                  ]
+      rooms =
+        [ ("elabathroom1"
+          , [ Vec3 (-0.80041015) (-0.9884287) (-1.5198468)
+            , Vec3 (-0.80076337) 1.5652194 (-1.6966621)
+            , Vec3 (-0.96627235) 1.6066637 1.6987381
+            , Vec3 (-0.95966613) (-0.98843944) 1.7501512
+            , Vec3 0.5775635 (-0.98843974) 1.8941374
+            , Vec3 0.69802976 1.5778129 (-1.5970236)
+            , Vec3 0.6918931 (-0.9884289) (-1.4197717)
+            , Vec3 0.5793414 1.6201758 1.843245
+            ]
+          )
+        , ("elakitchen1"
+          , [ Vec3 9.671569e-2 (-0.91251373) (-2.2253428)
+            , Vec3 (-2.1025066) (-0.91251373) (-1.0994778)
+            , Vec3 (-2.2102604) 1.7036777 (-1.1300573)
+            , Vec3 9.584594e-2 1.7212467 (-2.3112164)
+            , Vec3 2.0891232 1.725184 1.2726974
+            , Vec3 (-0.30790687) 1.707284 2.3521976
+            , Vec3 (-0.23941708) (-0.9125142) 2.3106794
+            , Vec3 2.046792 (-0.912514) 1.2810183
+            ]
+          )
+        , ("elamiddle1"
+          , [ Vec3 0.4379654 1.5980418 (-0.26340306)
+            , Vec3 (-0.4265194) 1.6302242 (-0.19807673)
+            , Vec3 (-0.38968277) 1.6646035 0.5294547
+            , Vec3 0.4116578 1.6347461 0.4683745
+            , Vec3 (-0.41408634) (-0.97689533) 0.7326498
+            , Vec3 (-0.4582219) (-0.9768954) (-0.14981699)
+            , Vec3 0.41233778 (-0.9768954) (-0.21617222)
+            , Vec3 0.38007212 (-0.97689533) 0.66986275
+            ]
+          )
+        , ("elaroom1"
+          , [ Vec3 2.1304765 (-1.0610049) (-1.6002798)
+            , Vec3 2.380793 1.5803287 (-1.5484123)
+            , Vec3 (-1.6485546) 2.0091648 (-1.9336071)
+            , Vec3 (-1.9732126) (-0.5630518) (-1.9919395)
+            , Vec3 (-2.0735986) (-0.7954781) 2.0725145
+            , Vec3 (-1.732965) 1.9079933 2.1676683
+            , Vec3 1.7069712 (-1.187545) 1.8982229
+            , Vec3 1.9569516 1.5288324 2.014926
+            ]
+          )
+        , ("elarooma2"
+          , [ Vec3 (-1.2394748) (-0.9991329) (-1.9200139)
+            , Vec3 (-1.3578) 1.6094978 (-1.8529172)
+            , Vec3 (-1.1683455) 1.2875693 2.6794243
+            , Vec3 (-1.0703187) (-0.9991331) 2.472702
+            , Vec3 0.8354454 1.5010788 2.7371817
+            , Vec3 0.9719229 (-0.9991331) 2.5117178
+            , Vec3 1.0528631 (-0.9991329) (-1.8371677)
+            , Vec3 0.91312027 1.618686 (-1.7705941)
+            ]
+          )
+        , ("elaroomb3"
+          , [ Vec3 2.2902393 (-1.1796348) (-2.025272)
+            , Vec3 2.3693638 (-1.1879312) 1.463068
+            , Vec3 (-2.0558214) (-0.76278543) 2.231657
+            , Vec3 (-2.467492) (-0.7224221) (-1.7942874)
+            , Vec3 (-2.4088001) 1.9028702 (-1.733478)
+            , Vec3 (-2.0076504) 1.806385 2.200717
+            , Vec3 2.601904 1.4829392 1.3990588
+            , Vec3 2.5302696 1.5456867 (-1.9704242)
+            ]
+          )
+        ]
 
-  ids <- forM (zip roomNames diagonalPairs) $ \(roomName, (x,z)) -> do
+  ids <- forM (zip rooms diagonalPairs) $ \((roomName, cornersFromMean), (x,z)) -> do
 
     Room{ roomID = i } <- loadRoom state (baseDir </> roomName </> "walls")
     changeRoom state i $ rotateKinfuRoom
-    changeRoom state i $ translateRoom (Vec3 (6 * fromIntegral x) 0 (6 * fromIntegral z))
     autoAlignFloor state =<< (\(Just r) -> r) <$> getRoom state i
 
     changeRoom state i $ removeCeiling
 
+    -- `cornersFromMean` were recorded after `rotateKinfuRoom`, `autoAlignFloor`, and `removeCeiling`.
+    changeRoom state i $ \r -> r{ roomCorners = map (&+ roomMean r) cornersFromMean }
+
+    changeRoom state i $ translateRoom (Vec3 (6 * fromIntegral x) 0 (6 * fromIntegral z))
+
     return i
 
 
-  forM_ (zip roomNames ids) $ \(roomName, i) -> do
+  forM_ (zip rooms ids) $ \((roomName, _), i) -> do
 
     projStr <- roomProjectionToString . (\(Just r) -> r) <$> getRoom state i
     putStrLn $ "~/src/pcl/pcl/build/bin/pcl_transform_point_cloud"
