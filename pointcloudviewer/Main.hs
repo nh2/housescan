@@ -51,7 +51,7 @@ import           Numeric.LinearAlgebra.Algorithms (linearSolve)
 import qualified PCD.Data as PCD
 import qualified PCD.Point as PCD
 import           System.Endian (fromBE32)
-import           System.FilePath ((</>))
+import           System.FilePath ((</>), takeFileName, takeDirectory)
 import           System.Random (randomRIO)
 import           System.SelfRestart (forkSelfRestartExePollWithAction)
 import           System.IO (hPutStrLn, stderr)
@@ -1828,6 +1828,18 @@ roomProjectionToString Room{ roomProj }
          (Vec4 e f g h)
          (Vec4 i j k l)
          (Vec4 m n o p) = transpose $ fromProjective roomProj
+
+
+exportAllRoomPCLTransforms :: State -> IO ()
+exportAllRoomPCLTransforms State{ transient = TransientState{ sRooms } } = do
+  rooms <- Map.elems <$> get sRooms
+
+  forM_ rooms $ \r -> do
+
+    putStrLn $ "~/src/pcl/pcl/build/bin/pcl_transform_point_cloud "
+               ++ roomName r ++ " " ++ (takeFileName . takeDirectory . takeDirectory $ roomName r) ++ "-placed.pcd"
+               ++ " -matrix " ++ roomProjectionToString r
+
 
 
 -- Infinite list of Cantor pairs:
