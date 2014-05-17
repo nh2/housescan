@@ -142,10 +142,11 @@ instance ShortShow Plane where
     ]
 
 instance ShortShow Room where
-  shortShow (Room i planes cloud corners proj) = "Room" ++ concat
+  shortShow (Room i planes cloud corners proj name) = "Room" ++ concat
     [ " ", show i, " ", shortShow planes, " (", shortShow cloud, ")"
     , " ", show corners
     , " ", show proj
+    , " ", name
     ]
 
 instance ShortShow Word32 where
@@ -234,12 +235,22 @@ data Room_v1 = Room_v1 -- deprecated
   } deriving (Eq, Ord, Show, Generic)
 
 
+data Room_v2 = Room_v2 -- deprecated
+  { roomID_v2      :: !ID
+  , roomPlanes_v2  :: ![Plane]
+  , roomCloud_v2   :: Cloud
+  , roomCorners_v2 :: [Vec3] -- TODO newtype this
+  , roomProj_v2    :: !Proj4 -- ^ How the room was moved/rotated versus the origin.
+  } deriving (Eq, Ord, Show, Generic)
+
+
 data Room = Room
   { roomID      :: !ID
   , roomPlanes  :: ![Plane]
   , roomCloud   :: Cloud
   , roomCorners :: [Vec3] -- TODO newtype this
   , roomProj    :: !Proj4 -- ^ How the room was moved/rotated versus the origin.
+  , roomName    :: !String
   } deriving (Eq, Ord, Show, Generic)
 
 
@@ -1441,7 +1452,9 @@ rotateKinfuRoom = rotateRoom (rotMatrixX (toRad 180))
 
 loadRoom :: State -> FilePath -> IO Room
 loadRoom state dir = do
-  cloud <- cloudFromFile state (dir </> "cloud_downsampled.pcd")
+  let path = dir </> "cloud_downsampled.pcd"
+
+  cloud <- cloudFromFile state path
 
   -- Make all plane normals inward facing
   let roomCenter = cloudMean cloud
@@ -1455,7 +1468,7 @@ loadRoom state dir = do
   planes <- map makeInwardFacing <$> planesFromDir state dir
 
   i <- genID state
-  let room = Room i planes cloud [] one
+  let room = Room i planes cloud [] one path
   updateRoom state room
   -- Note that we should not further modify the room in this function,
   -- since we desire that loadRoom returns it both as represented in
@@ -2106,7 +2119,11 @@ deriveSafeCopy 1 'base ''Normal3
 deriveSafeCopy 1 'base ''PlaneEq
 deriveSafeCopy 1 'base ''Plane
 deriveSafeCopy 1 'base ''Room_v1
-deriveSafeCopy 2 'extension ''Room
+deriveSafeCopy 2 'extension ''Room_v2
+instance Migrate Room_v2 where
+  type MigrateFrom Room_v2 = Room_v1
+  migrate (Room_v1 i planes cloud corners) = Room_v2 i planes cloud corners one
+deriveSafeCopy 3 'extension ''Room
 instance Migrate Room where
-  type MigrateFrom Room = Room_v1
-  migrate (Room_v1 i planes cloud corners) = Room i planes cloud corners one
+  type MigrateFrom Room = Room_v2
+  migrate (Room_v2 i planes cloud corners proj) = Room i planes cloud corners proj "ANON"
