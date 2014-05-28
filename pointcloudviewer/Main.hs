@@ -824,6 +824,7 @@ input state (Char '[') Down _ _ = changeFps state pred
 input state (Char ']') Down _ _ = changeFps state succ
 input state (Char '\r') Down _ _ = addDevicePointCloud state
 input state (Char 'm') Down _ _ = addCornerPoint state
+input state (Char '\DEL') Down _ _ = deleteSelectedPlane state
 input state (Char 'f') Down _ _ = fitCuboidToSelectedRoom state
 input state (Char 'r') Down _ _ = rotateSelectedPlanes state
 input state (Char 's') Down _ _ = save state
@@ -1249,6 +1250,23 @@ planeCorner (PlaneEq n1 d1)
 
 red :: Color3 GLfloat
 red = Color3 1 0 0
+
+
+deleteSelectedPlane :: State -> IO ()
+deleteSelectedPlane state@State{ transient = TransientState{..}, ..} = do
+  get sSelectedPlanes >>= \case
+      [p]-> do
+        -- First check if p is part of a room.
+        rooms <- Map.elems <$> get sRooms
+        case findRoomContainingPlane rooms (planeID p) of
+          Just r -> do
+            updateRoom state r{ roomPlanes = [ p' | p' <- roomPlanes r, planeID p' /= planeID p ] }
+          _ -> do
+            sPlanes $~ Map.delete (planeID p)
+
+      ps -> putStrLn $ show (length ps) ++ " planes selected, need 3"
+
+  sSelectedPlanes $= []
 
 
 addCornerPoint :: State -> IO ()
