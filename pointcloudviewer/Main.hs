@@ -823,7 +823,7 @@ input state (MouseButton WheelUp) Down _ pos
 input state (Char '[') Down _ _ = changeFps state pred
 input state (Char ']') Down _ _ = changeFps state succ
 input state (Char '\r') Down _ _ = addDevicePointCloud state
-input state (Char 'm') Down _ _ = addCornerPoint state
+input state (Char 'c') Down _ _ = addCornerPoint state
 input state (Char '\DEL') Down _ _ = deleteSelectedPlane state
 input state (Char 'f') Down _ _ = fitCuboidToSelectedRoom state
 input state (Char 'r') Down _ _ = rotateSelectedPlanes state
@@ -834,7 +834,7 @@ input state (Char 'd') Down _ _ = sDisplayPlanes state $~ not
 input state (Char 'p') Down _ _ = sDisplayClouds state $~ not
 input state (Char '+') Down _ _ = sPointSize state $~ (+ 1.0)
 input state (Char '-') Down _ _ = sPointSize state $~ (abs . subtract 1.0)
-input state (Char 'c') Down _ _ = clearRooms state
+input state (Char '\b') Down _ _ = clearRooms state
 input state (Char '#') Down _ _ = swapRoomPositions state
 input state (Char 'w') Down _ _ = connectWalls state Opposite
 input state (Char 'W') Down _ _ = connectWalls state Same
