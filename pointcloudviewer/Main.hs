@@ -1690,18 +1690,22 @@ toDoubleVec :: Vec3 -> Vect.Double.Vec3
 toDoubleVec (Vec3 a b c) = Vect.Double.Vec3 (realToFrac a) (realToFrac b) (realToFrac c)
 
 
--- TODO change this to use the lowest plane instead of the one most parallel to the floor
-autoAlignFloor :: State -> Room -> IO ()
-autoAlignFloor state room@Room{ roomID, roomPlanes } = do
+roomAutoAlignAxis :: State -> Vec3 -> Room -> IO ()
+roomAutoAlignAxis state axis room@Room{ roomID, roomPlanes } = do
   putStrLn $ "auto aligning floor of room " ++ show roomID
 
   case roomPlanes of
     [] -> putStrLn "room has no planes"
     ps -> do
-      let floorPlane = maximumBy (comparing (dotprod vec3Y . planeNormal)) ps
-          rot = rotationBetweenPlaneEqs (planeEq floorPlane) (mkPlaneEq vec3Y 1)
+      let floorPlane = maximumBy (comparing (dotprod axis . planeNormal)) ps
+          rot = rotationBetweenPlaneEqs (planeEq floorPlane) (mkPlaneEq axis 1)
 
       updateRoom state (rotateRoom rot room)
+
+
+-- TODO change this to use the lowest plane instead of the one most parallel to the floor
+autoAlignFloor :: State -> Room -> IO ()
+autoAlignFloor state room = roomAutoAlignAxis state vec3Y room
 
 
 newEmptyCloud :: State -> IO Cloud
