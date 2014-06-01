@@ -1796,7 +1796,10 @@ swapRoomPositions state@State{ transient = TransientState{..}, ..} = do
 
 autoAlignAndRotate :: State -> IO ()
 autoAlignAndRotate state = withSelectedRoom state $ \r -> do
+  -- Align in order: [floor, side, floor] to make sure the side rotation
+  -- doesn't move the unaligned floor somewhere else.
   autoAlignFloor state r
+  roomAutoAlignAxis state vec3X r
   changeRoom state (roomID r) $ rotateRoom (rotMatrix3 vec3Y (toRad 90))
   -- Don't unselect room so that we can rotate multiple times easily
 
