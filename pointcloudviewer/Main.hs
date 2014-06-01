@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase, MultiWayIf, ScopedTypeVariables, TypeSynonymInstances #-}
+{-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase, MultiWayIf, ScopedTypeVariables, TypeSynonymInstances, ParallelListComp #-}
 {-# LANGUAGE DeriveGeneric, StandaloneDeriving, FlexibleContexts, TypeOperators, DeriveDataTypeable #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -22,7 +22,7 @@ import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Int (Int64)
-import           Data.List (find, intercalate, sortBy, maximumBy)
+import           Data.List (find, intercalate, sortBy, maximumBy, (\\))
 import           Data.Ord (comparing)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Data.Typeable
@@ -142,7 +142,7 @@ instance ShortShow Plane where
     ]
 
 instance ShortShow Room where
-  shortShow (Room i planes cloud corners proj name) = "Room" ++ concat
+  shortShow (Room i planes cloud corners _suggs proj name) = "Room" ++ concat
     [ " ", show i, " ", shortShow planes, " (", shortShow cloud, ")"
     , " ", show corners
     , " ", show proj
@@ -193,6 +193,8 @@ data State = State
   , sDisplayPlanes                 :: !(IORef Bool)
   , sDisplayClouds                 :: !(IORef Bool)
   , sPointSize                     :: !(IORef Float)
+  -- Corner suggestion options
+  , sSuggestionCutoffFactor        :: !(IORef Float)
   -- Visual debugging
   , sDebugProjectPlanePointsToEq   :: !(IORef Bool)
   -- Transient state
@@ -244,11 +246,22 @@ data Room_v2 = Room_v2 -- deprecated
   } deriving (Eq, Ord, Show, Generic)
 
 
+data Room_v3 = Room_v3
+  { roomID_v3      :: !ID
+  , roomPlanes_v3  :: ![Plane]
+  , roomCloud_v3   :: Cloud
+  , roomCorners_v3 :: [Vec3] -- TODO newtype this
+  , roomProj_v3    :: !Proj4 -- ^ How the room was moved/rotated versus the origin.
+  , roomName_v3    :: !String
+  } deriving (Eq, Ord, Show, Generic)
+
+
 data Room = Room
   { roomID      :: !ID
   , roomPlanes  :: ![Plane]
   , roomCloud   :: Cloud
-  , roomCorners :: [Vec3] -- TODO newtype this
+  , roomCorners          :: [(ID, Vec3)] -- TODO newtype this
+  , roomSuggestedCorners :: [(ID, Vec3)]
   , roomProj    :: !Proj4 -- ^ How the room was moved/rotated versus the origin.
   , roomName    :: !String
   } deriving (Eq, Ord, Show, Generic)
@@ -272,6 +285,12 @@ noID = maxBound
 genID :: State -> IO ID
 genID State{ transient = TransientState{ sNextID } } =
   atomicModifyIORef' sNextID (\i -> (i+1 `mod` noID, i))
+
+
+zipGenIDs :: State -> [a] -> IO [(ID, a)]
+zipGenIDs state xs = forM xs $ \c -> do
+  cornerId <- genID state
+  return (cornerId, c)
 
 
 -- |Sets the vertex color
@@ -465,7 +484,7 @@ drawObjects state@State{ sDisplayPlanes, sDisplayClouds, transient = TransientSt
 
   when (not picking) $ on sDisplayClouds $ drawPointClouds state
 
-  when (not picking) $ drawRoomCorners state
+  drawRoomCorners state
 
   when (not picking) $ drawWallConnections state
 
@@ -537,18 +556,33 @@ drawPointClouds State{ sPointSize, transient = TransientState{ sAllocatedClouds 
 
 
 drawRoomCorners :: State -> IO ()
-drawRoomCorners State{ transient = TransientState{ sRooms } } = do
+drawRoomCorners State{ transient = TransientState{ sRooms, sPickingMode }, ..} = do
   rooms <- Map.elems <$> get sRooms
 
   withVar pointSize 8.0 $ do
     renderPrimitive Points $ do
+
+      -- Room corner suggestions if we don't have enough corners
+      forM_ rooms $ \Room{ roomSuggestedCorners, roomCorners } -> do
+        when (length roomCorners /= 8) $ do
+          picking <- get sPickingMode
+          underCursor <- get sUnderCursor
+
+          forM_ roomSuggestedCorners $ \(i, c) -> do
+            color $ if
+              | picking               -> idToColor i
+              | underCursor == Just i -> Color4 0 1 0 1
+              | otherwise             -> Color4 0 0 1 1 -- TODO check why transparency doesn't work
+            vertexVec3 c
+
+      -- Room corners
       forM_ rooms $ \Room{ roomCorners } -> do
         if (length roomCorners /= 8)
           then do
             color red
-            forM_ roomCorners vertexVec3
+            mapM_ (vertexVec3 . snd) roomCorners
           else do
-            let [a,b,c,d,e,f,g,h] = roomCorners
+            let [a,b,c,d,e,f,g,h] = map snd roomCorners
             color3 0.3 0.6 0.3 >> vertexVec3 a
             color3 0 0 1 >> vertexVec3 b
             color3 0 1 0 >> vertexVec3 c
@@ -825,6 +859,7 @@ input state (Char ']') Down _ _ = changeFps state succ
 input state (Char '\r') Down _ _ = addDevicePointCloud state
 input state (Char 'c') Down _ _ = addCornerPoint state
 input state (Char '\DEL') Down _ _ = deleteSelectedPlane state
+input state (Char 'g') Down _ _ = suggestPoints state
 input state (Char 'f') Down _ _ = fitCuboidToSelectedRoom state
 input state (Char 'r') Down _ _ = rotateSelectedPlanes state
 input state (Char 's') Down _ _ = save state
@@ -854,7 +889,7 @@ objectHover State{..} m'i = do
 -- | Called when picking notices a click on an object
 objectClick :: State -> Maybe ID -> IO ()
 objectClick _      Nothing  = putStrLn $ "Clicked: Background"
-objectClick State{ transient = TransientState{..}, ..} (Just i) = do
+objectClick state@State{ transient = TransientState{..}, ..} (Just i) = do
   putStrLn $ "Clicked: " ++ show i
 
   rooms <- Map.elems <$> get sRooms
@@ -875,6 +910,10 @@ objectClick State{ transient = TransientState{..}, ..} (Just i) = do
     putStrLn $ "PlaneEq: " ++ show (planeEq p)
     when (p `notElem` selected) $ do -- could compare by ID only
       sSelectedPlanes $~ (p:)
+
+  -- Suggested corner click
+  for_ (findRoomContainingSuggestedCorner rooms i) $ \r -> do
+    acceptCornerSuggestion state r i
 
 
 -- |Mouse wheel movement (sZoom)
@@ -911,6 +950,7 @@ createState = do
   sDisplayPlanes    <- newIORef True
   sDisplayClouds    <- newIORef True
   sPointSize        <- newIORef 2.0
+  sSuggestionCutoffFactor <- newIORef 1.2
   sDebugProjectPlanePointsToEq <- newIORef True -- It is a good idea to keep this on, always
   transient         <- createTransientState
 
@@ -1269,6 +1309,13 @@ deleteSelectedPlane state@State{ transient = TransientState{..}, ..} = do
   sSelectedPlanes $= []
 
 
+addCornerToRoom :: State -> (ID, Vec3) -> Room -> IO ()
+addCornerToRoom state sugg r = do
+  updateRoom state r{ roomCorners = sugg : roomCorners r
+                    , roomSuggestedCorners = roomSuggestedCorners r \\ [sugg]
+                    }
+
+
 addCornerPoint :: State -> IO ()
 addCornerPoint state@State{ transient = TransientState{..}, ..} = do
   get sSelectedPlanes >>= \case
@@ -1283,7 +1330,8 @@ addCornerPoint state@State{ transient = TransientState{..}, ..} = do
           case roomCorners r of
             corners | length corners < 8 -> do
               putStrLn $ "Merging planes of room to corner " ++ show corner
-              updateRoom state r{ roomCorners = corner : roomCorners r }
+              cornerId <- genID state
+              addCornerToRoom state (cornerId, corner) r
             _ -> putStrLn $ "Room " ++ show i ++ " already has 8 corners"
         _ -> do
           putStrLn $ "Merged planes to corner " ++ show corner
@@ -1293,6 +1341,28 @@ addCornerPoint state@State{ transient = TransientState{..}, ..} = do
     ps -> putStrLn $ show (length ps) ++ " planes selected, need 3"
 
   sSelectedPlanes $= []
+
+
+suggestPoints :: State -> IO ()
+suggestPoints state@State{ transient = TransientState{ sSelectedRoom }, ..} = do
+  get sSelectedRoom >>= \case
+    Nothing -> putStrLn "no room selected"
+    Just r  -> do
+      let planes = roomPlanes r
+          allCorners = [ planeCorner (planeEq p) (planeEq q) (planeEq s) | p <- planes, q <- planes, s <- planes, p < q, q < s ]
+          maxMeanDistance = V.maximum . V.map (distance (roomMean r)) $ cloudPoints (roomCloud r)
+      cutoffFactor <- get sSuggestionCutoffFactor
+      let cutoff = cutoffFactor * maxMeanDistance
+      putStrLn $ "Suggesting " ++ show (length allCorners) ++ " corners"
+      corners <- zipGenIDs state [ c | c <- allCorners, distance c (roomMean r) <= cutoff ]
+      updateRoom state r{ roomSuggestedCorners = corners }
+
+
+acceptCornerSuggestion :: State -> Room -> ID -> IO ()
+acceptCornerSuggestion state r suggID = do
+  putStrLn $ "Accepting corner suggestion " ++ show suggID ++ " to room " ++ show (roomID r)
+  let Just sugg = find (\(i, _) -> i == suggID) (roomSuggestedCorners r)
+  addCornerToRoom state sugg r
 
 
 -- | Calculates the rotation matrix that will rotate plane1 into the same
@@ -1363,6 +1433,10 @@ findRoomContainingPlane :: [Room] -> ID -> Maybe Room
 findRoomContainingPlane rooms i = find (\r -> any ((i == ) . planeID) (roomPlanes r)) rooms
 
 
+findRoomContainingSuggestedCorner :: [Room] -> ID -> Maybe Room
+findRoomContainingSuggestedCorner rooms i = find (\r -> any ((i == ) . fst) (roomSuggestedCorners r)) rooms
+
+
 rotateSelectedPlanes :: State -> IO ()
 rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
   get sSelectedPlanes >>= \case
@@ -1400,10 +1474,11 @@ roomMean Room{ roomCloud } = cloudMean roomCloud
 
 
 rotateRoomAround :: Vec3 -> Mat3 -> Room -> Room
-rotateRoomAround rotCenter rotMat r@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomCorners = oldCorners, roomProj = oldProj }
+rotateRoomAround rotCenter rotMat r@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomCorners = oldCorners, roomSuggestedCorners = oldSuggs, roomProj = oldProj }
   = r{ roomPlanes = map (rotatePlaneAround rotCenter rotMat) oldPlanes
      , roomCloud = rotateCloudAround rotCenter rotMat oldCloud
-     , roomCorners = map (rotateAround rotCenter rotMat) oldCorners
+     , roomCorners          = [ (i, rotateAround rotCenter rotMat c) | (i, c) <- oldCorners ]
+     , roomSuggestedCorners = [ (i, rotateAround rotCenter rotMat c) | (i, c) <- oldSuggs ]
      -- `linear rotMat` is right-multiplied since we use right-multiplication
      -- for everything else as well (otherwise we'd have to transpose it).
      , roomProj = translate4 rotCenter . (.*. linear rotMat) . translate4 (neg rotCenter) $ oldProj
@@ -1435,21 +1510,23 @@ translateCloud off c@Cloud{ cloudPoints = oldPoints }
 
 
 translateRoom :: Vec3 -> Room -> Room
-translateRoom off room@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomCorners = oldCorners, roomProj = oldProj }
+translateRoom off room@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomCorners = oldCorners, roomSuggestedCorners = oldSuggs, roomProj = oldProj }
   = room{ roomPlanes = map (translatePlane off) oldPlanes
         , roomCloud = translateCloud off oldCloud
-        , roomCorners = map (off &+) oldCorners
+        , roomCorners          = [ (i, c &+ off) | (i, c) <- oldCorners ]
+        , roomSuggestedCorners = [ (i, c &+ off) | (i, c) <- oldSuggs ]
         , roomProj = translate4 off oldProj
         }
 
 
 projectRoom :: Proj4 -> Room -> Room
-projectRoom proj room@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomCorners = oldCorners, roomProj = oldProj }
+projectRoom proj room@Room{ roomPlanes = oldPlanes, roomCloud = oldCloud, roomCorners = oldCorners, roomSuggestedCorners = oldSuggs, roomProj = oldProj }
   = room -- `roomProj` is always a projection versus the origin, so rotate around that.
         { roomPlanes = map (translatePlane off . rotatePlaneAround zero rotMat) oldPlanes
         , roomCloud = (translateCloud off . rotateCloudAround zero rotMat) oldCloud
         -- TODO Change this so that it doesn't assume the scaling factor is 1 (so scale the result)
-        , roomCorners = map (myTrim . (.* fromProjective proj) . (extendWith 1 :: Vec3 -> Vec4)) oldCorners
+        , roomCorners          = [ (cid, myTrim . (.* fromProjective proj) . (extendWith 1 :: Vec3 -> Vec4) $ corner) | (cid, corner) <- oldCorners ]
+        , roomSuggestedCorners = [ (cid, myTrim . (.* fromProjective proj) . (extendWith 1 :: Vec3 -> Vec4) $ corner) | (cid, corner) <- oldSuggs ]
         , roomProj = oldProj .*. proj
         }
   where
@@ -1486,7 +1563,7 @@ loadRoom state dir = do
   planes <- map makeInwardFacing <$> planesFromDir state dir
 
   i <- genID state
-  let room = Room i planes cloud [] one path
+  let room = Room i planes cloud [] [] one path
   updateRoom state room
   -- Note that we should not further modify the room in this function,
   -- since we desire that loadRoom returns it both as represented in
@@ -1536,7 +1613,7 @@ fitCuboidToRoom state Room{ roomID, roomCorners } = do
     else do
       putStrLn $ "Room corners: " ++ show roomCorners
 
-      let points = map toDoubleVec roomCorners
+      let points = map (toDoubleVec . snd) roomCorners
           (params, steps, err, _) = fitCuboidFromCenterFirst points
 
       putStrLn $ "fit cuboid in " ++ show steps ++ " steps, RMSE: " ++ show (sqrt err)
@@ -1550,7 +1627,10 @@ fitCuboidToRoom state Room{ roomID, roomCorners } = do
                                            (Vec3 x y z) (Vec3 a b c)
                                            (mkU (Vec4 q1 q2 q3 q4))
 
-      changeRoom state roomID (\r -> r{ roomCorners = cuboidPoints
+      -- Re-use corner ids
+      let newCorners = [ (i, corner) | corner <- cuboidPoints | (i, _) <- roomCorners ]
+
+      changeRoom state roomID (\r -> r{ roomCorners = newCorners
                                       , roomPlanes  = cuboidPlanes })
 
 
@@ -1815,7 +1895,7 @@ d `along` Z = Vec3 0 0 d
 
 
 cornerMean :: Room -> Vec3
-cornerMean = pointMean . V.fromList . roomCorners
+cornerMean = pointMean . V.fromList . map snd . roomCorners
 
 
 -- Assumes rooms are perfect cuboids.
@@ -1955,8 +2035,10 @@ devSetup state = do
 
     changeRoom state i $ removeCeiling
 
+    cornersFromMeanWithIDs <- zipGenIDs state cornersFromMean
+
     -- `cornersFromMean` were recorded after `rotateKinfuRoom`, `autoAlignFloor`, and `removeCeiling`.
-    changeRoom state i $ \r -> r{ roomCorners = map (&+ roomMean r) cornersFromMean }
+    changeRoom state i $ \r -> r{ roomCorners = [ (cid, c &+ roomMean r) | (cid, c) <- cornersFromMeanWithIDs ] }
 
     changeRoom state i $ translateRoom (Vec3 (6 * fromIntegral x) 0 (6 * fromIntegral z))
 
@@ -1981,7 +2063,8 @@ sleep t = threadDelay $ floor (t * 1e6)
 loadTestRoom1WithCorners :: State -> IO Room
 loadTestRoom1WithCorners state = do
   r@Room{ roomID = i } <- loadRoom state "/mnt/3d-scans/rec3/elaroom1/walls/"
-  changeRoom state i (\x -> x{ roomCorners = corners })
+  idCorners <- zipGenIDs state corners
+  changeRoom state i (\x -> x{ roomCorners = idCorners })
   return r
   where
     corners
@@ -2153,7 +2236,11 @@ deriveSafeCopy 2 'extension ''Room_v2
 instance Migrate Room_v2 where
   type MigrateFrom Room_v2 = Room_v1
   migrate (Room_v1 i planes cloud corners) = Room_v2 i planes cloud corners one
-deriveSafeCopy 3 'extension ''Room
+deriveSafeCopy 3 'extension ''Room_v3
+instance Migrate Room_v3 where
+  type MigrateFrom Room_v3 = Room_v2
+  migrate (Room_v2 i planes cloud corners proj) = Room_v3 i planes cloud corners proj "ANON"
+deriveSafeCopy 4 'extension ''Room
 instance Migrate Room where
-  type MigrateFrom Room = Room_v2
-  migrate (Room_v2 i planes cloud corners proj) = Room i planes cloud corners proj "ANON"
+  type MigrateFrom Room = Room_v3
+  migrate (Room_v3 i planes cloud corners proj name) = Room i planes cloud [ (0,c) | c <- corners] [] proj name -- Dirty hack
