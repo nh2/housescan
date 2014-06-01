@@ -872,6 +872,7 @@ input state (Char '-') Down _ _ = sPointSize state $~ (abs . subtract 1.0)
 input state (Char '\b') Down _ _ = clearRooms state
 input state (Char ' ') Down _ _ = clearSelections state
 input state (Char '#') Down _ _ = swapRoomPositions state
+input state (Char 'a') Down _ _ = autoAlignAndRotate state
 input state (Char 'w') Down _ _ = connectWalls state Opposite
 input state (Char 'W') Down _ _ = connectWalls state Same
 input state (Char '\^W') Down _ _ = disconnectWalls state
@@ -1787,6 +1788,13 @@ swapRoomPositions state@State{ transient = TransientState{..}, ..} = do
 
   -- Reset selected planes in any case
   sSelectedPlanes $= []
+
+
+autoAlignAndRotate :: State -> IO ()
+autoAlignAndRotate state = withSelectedRoom state $ \r -> do
+  autoAlignFloor state r
+  changeRoom state (roomID r) $ rotateRoom (rotMatrix3 vec3Y (toRad 90))
+  -- Don't unselect room so that we can rotate multiple times easily
 
 
 connectWalls :: State -> WallRelation -> IO ()
