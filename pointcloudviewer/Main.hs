@@ -878,6 +878,12 @@ input state (Char 'W') Down _ _ = connectWalls state Same
 input state (Char '\^W') Down _ _ = disconnectWalls state
 input state (Char 'o') Down _ _ = optimizeRoomPositions state
 input state (Char 'e') Down _ _ = exportRoomProjection state
+input state (SpecialKey KeyUp      ) Down _ _ = moveSelectedRoom state (Vec3   0    0 (-1))
+input state (SpecialKey KeyDown    ) Down _ _ = moveSelectedRoom state (Vec3   0    0   1 )
+input state (SpecialKey KeyLeft    ) Down _ _ = moveSelectedRoom state (Vec3 (-1)   0   0 )
+input state (SpecialKey KeyRight   ) Down _ _ = moveSelectedRoom state (Vec3   1    0   0 )
+input state (SpecialKey KeyPageUp  ) Down _ _ = moveSelectedRoom state (Vec3   0    1   0 )
+input state (SpecialKey KeyPageDown) Down _ _ = moveSelectedRoom state (Vec3   0  (-1)  0 )
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
 
@@ -1941,6 +1947,11 @@ roomCenterOffsetFromWalls r1 r2 p1 p2 axis
 exportRoomProjection :: State -> IO ()
 exportRoomProjection state = do
   withSelectedRoom state (putStrLn . roomProjectionToString)
+
+
+moveSelectedRoom :: State -> Vec3 -> IO ()
+moveSelectedRoom state directionVec = withSelectedRoom state $ \r -> do
+  changeRoom state (roomID r) (translateRoom directionVec)
 
 
 roomProjectionToString :: Room -> String
