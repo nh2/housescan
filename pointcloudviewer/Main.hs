@@ -870,6 +870,7 @@ input state (Char 'p') Down _ _ = sDisplayClouds state $~ not
 input state (Char '+') Down _ _ = sPointSize state $~ (+ 1.0)
 input state (Char '-') Down _ _ = sPointSize state $~ (abs . subtract 1.0)
 input state (Char '\b') Down _ _ = clearRooms state
+input state (Char ' ') Down _ _ = clearSelections state
 input state (Char '#') Down _ _ = swapRoomPositions state
 input state (Char 'w') Down _ _ = connectWalls state Opposite
 input state (Char 'W') Down _ _ = connectWalls state Same
@@ -1744,6 +1745,13 @@ clearRooms State{ transient = TransientState{ sRooms, sConnectedWalls, sAllocate
         sAllocatedClouds $~ Map.delete cloudID
 
   sConnectedWalls $= []
+
+
+clearSelections :: State -> IO ()
+clearSelections State{ transient = TransientState{..}, ..} = do
+  sSelectedPlanes $= []
+  sSelectedRoom $= Nothing
+  putStrLn "selections cleared"
 
 
 swapRoomPositions :: State -> IO ()
