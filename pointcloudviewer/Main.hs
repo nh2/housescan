@@ -1349,14 +1349,21 @@ suggestPoints state@State{ transient = TransientState{ sSelectedRoom }, ..} = do
   get sSelectedRoom >>= \case
     Nothing -> putStrLn "no room selected"
     Just r  -> do
+      cutoffFactor <- get sSuggestionCutoffFactor
       let planes = roomPlanes r
           allCorners = [ planeCorner (planeEq p) (planeEq q) (planeEq s) | p <- planes, q <- planes, s <- planes, p < q, q < s ]
           maxMeanDistance = V.maximum . V.map (distance (roomMean r)) $ cloudPoints (roomCloud r)
-      cutoffFactor <- get sSuggestionCutoffFactor
-      let cutoff = cutoffFactor * maxMeanDistance
-      putStrLn $ "Suggesting " ++ show (length allCorners) ++ " corners"
-      corners <- zipGenIDs state [ c | c <- allCorners, distance c (roomMean r) <= cutoff ]
-      updateRoom state r{ roomSuggestedCorners = corners }
+          cutoff = cutoffFactor * maxMeanDistance
+
+      suggestedCorners <- zipGenIDs state [ c | c <- allCorners, distance c (roomMean r) <= cutoff ]
+
+      if -- If no points have been selected so far and there are only 8 suggestions, directly use those
+        | roomCorners r == [] && length suggestedCorners == 8 -> do
+            putStrLn "Only have 8 corners from the 6 planes - you have no choice"
+            updateRoom state r{ roomCorners = suggestedCorners }
+        | otherwise -> do
+            putStrLn $ "Suggesting " ++ show (length allCorners) ++ " corners from " ++ show (length planes) ++ " planes"
+            updateRoom state r{ roomSuggestedCorners = suggestedCorners }
 
 
 acceptCornerSuggestion :: State -> Room -> ID -> IO ()
