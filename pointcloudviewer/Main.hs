@@ -903,7 +903,7 @@ objectClick state@State{ transient = TransientState{..}, ..} (Just i) = do
   case findRoomContainingPlane rooms i of
     Nothing -> sSelectedRoom $= Nothing
     Just r -> do
-      putStrLn $ "Room: " ++ show (roomID r)
+      putStrLn $ "Room: " ++ show (roomID r) ++ " (" ++ roomName r ++ ")"
       sSelectedRoom $= Just r
 
   for_ (find (\Plane{ planeID } -> planeID == i) allPlanes) $ \p -> do
