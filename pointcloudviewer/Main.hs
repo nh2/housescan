@@ -206,9 +206,9 @@ data TransientState = TransientState
   , sPickingMode                   :: !(IORef Bool)
   , sAllocatedClouds               :: !(IORef (Map ID (Cloud, BufferObject, Maybe BufferObject))) -- second is for colours
   , sPlanes                        :: !(IORef (Map ID Plane))
-  , sSelectedPlanes                :: !(IORef [Plane])
+  , sSelectedPlanes                :: !(IORef [Plane]) -- TODO these should be IDs (otherwise they don't notice changes)
   , sRooms                         :: !(IORef (Map ID Room))
-  , sSelectedRoom                  :: !(IORef (Maybe Room))
+  , sSelectedRoom                  :: !(IORef (Maybe ID))
   , sConnectedWalls                :: !(IORef [(Axis, WallRelation, ID, ID)])
   }
 
@@ -902,9 +902,9 @@ objectClick state@State{ transient = TransientState{..}, ..} (Just i) = do
 
   case findRoomContainingPlane rooms i of
     Nothing -> sSelectedRoom $= Nothing
-    Just r -> do
-      putStrLn $ "Room: " ++ show (roomID r) ++ " (" ++ roomName r ++ ")"
-      sSelectedRoom $= Just r
+    Just Room{ roomID, roomName } -> do
+      putStrLn $ "Room: " ++ show roomID ++ " (" ++ roomName ++ ")"
+      sSelectedRoom $= Just roomID
 
   for_ (find (\Plane{ planeID } -> planeID == i) allPlanes) $ \p -> do
     putStrLn $ "Plane: " ++ show (planeID p)
@@ -1345,25 +1345,22 @@ addCornerPoint state@State{ transient = TransientState{..}, ..} = do
 
 
 suggestPoints :: State -> IO ()
-suggestPoints state@State{ transient = TransientState{ sSelectedRoom }, ..} = do
-  get sSelectedRoom >>= \case
-    Nothing -> putStrLn "no room selected"
-    Just r  -> do
-      cutoffFactor <- get sSuggestionCutoffFactor
-      let planes = roomPlanes r
-          allCorners = [ planeCorner (planeEq p) (planeEq q) (planeEq s) | p <- planes, q <- planes, s <- planes, p < q, q < s ]
-          maxMeanDistance = V.maximum . V.map (distance (roomMean r)) $ cloudPoints (roomCloud r)
-          cutoff = cutoffFactor * maxMeanDistance
+suggestPoints state@State{..} = withSelectedRoom state $ \r -> do
+  cutoffFactor <- get sSuggestionCutoffFactor
+  let planes = roomPlanes r
+      allCorners = [ planeCorner (planeEq p) (planeEq q) (planeEq s) | p <- planes, q <- planes, s <- planes, p < q, q < s ]
+      maxMeanDistance = V.maximum . V.map (distance (roomMean r)) $ cloudPoints (roomCloud r)
+      cutoff = cutoffFactor * maxMeanDistance
 
-      suggestedCorners <- zipGenIDs state [ c | c <- allCorners, distance c (roomMean r) <= cutoff ]
+  suggestedCorners <- zipGenIDs state [ c | c <- allCorners, distance c (roomMean r) <= cutoff ]
 
-      if -- If no points have been selected so far and there are only 8 suggestions, directly use those
-        | roomCorners r == [] && length suggestedCorners == 8 -> do
-            putStrLn "Only have 8 corners from the 6 planes - you have no choice"
-            updateRoom state r{ roomCorners = suggestedCorners }
-        | otherwise -> do
-            putStrLn $ "Suggesting " ++ show (length allCorners) ++ " corners from " ++ show (length planes) ++ " planes"
-            updateRoom state r{ roomSuggestedCorners = suggestedCorners }
+  if -- If no points have been selected so far and there are only 8 suggestions, directly use those
+    | roomCorners r == [] && length suggestedCorners == 8 -> do
+        putStrLn "Only have 8 corners from the 6 planes - you have no choice"
+        updateRoom state r{ roomCorners = suggestedCorners }
+    | otherwise -> do
+        putStrLn $ "Suggesting " ++ show (length allCorners) ++ " corners from " ++ show (length planes) ++ " planes"
+        updateRoom state r{ roomSuggestedCorners = suggestedCorners }
 
 
 acceptCornerSuggestion :: State -> Room -> ID -> IO ()
@@ -1443,6 +1440,15 @@ findRoomContainingPlane rooms i = find (\r -> any ((i == ) . planeID) (roomPlane
 
 findRoomContainingSuggestedCorner :: [Room] -> ID -> Maybe Room
 findRoomContainingSuggestedCorner rooms i = find (\r -> any ((i == ) . fst) (roomSuggestedCorners r)) rooms
+
+
+withSelectedRoom :: State -> (Room -> IO ()) -> IO ()
+withSelectedRoom State{ transient = TransientState{ .. } } f = do
+  get sSelectedRoom >>= \case
+    Nothing -> putStrLn "no room selected"
+    Just i -> Map.lookup i <$> get sRooms >>= \case
+      Nothing -> putStrLn $ "WARNING: Room with ID " ++ show i ++ " does not exist"
+      Just r -> f r
 
 
 rotateSelectedPlanes :: State -> IO ()
@@ -1606,10 +1612,8 @@ addPlane State{ transient = TransientState{ sPlanes } } p@Plane{ planeID = i } =
 
 
 fitCuboidToSelectedRoom :: State -> IO ()
-fitCuboidToSelectedRoom state@State{ transient = TransientState{ sSelectedRoom } } = do
-  get sSelectedRoom >>= \case
-    Nothing -> putStrLn "no room selected"
-    Just r  -> fitCuboidToRoom state r
+fitCuboidToSelectedRoom state = do
+  withSelectedRoom state (fitCuboidToRoom state)
 
 
 fitCuboidToRoom :: State -> Room -> IO ()
@@ -1920,11 +1924,8 @@ roomCenterOffsetFromWalls r1 r2 p1 p2 axis
 
 
 exportRoomProjection :: State -> IO ()
-exportRoomProjection State{ transient = TransientState{ sSelectedRoom } } = do
-  get sSelectedRoom >>= \case
-    Nothing -> putStrLn "no room selected"
-    Just r -> do
-      putStrLn $ roomProjectionToString r
+exportRoomProjection state = do
+  withSelectedRoom state (putStrLn . roomProjectionToString)
 
 
 roomProjectionToString :: Room -> String
