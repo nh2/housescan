@@ -55,7 +55,7 @@ lstSqDistancesI distMap = points
 
     b = asColumn $ fromList [ d | (_, d) <- dists ]
 
-    [x] = toColumns $ linearSolveLS a b
+    [x] = toColumns $ linearSolveLS a b -- TODO Figure out how to catch `ghc: linearSolverLSR: singular`
     points = 0.0 : toList x -- prepend a 0 for x_0
 
 
