@@ -21,6 +21,7 @@ import           Data.Foldable (for_)
 import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Maybe
 import           Data.Int (Int64)
 import           Data.List (find, intercalate, sortBy, maximumBy, (\\))
 import           Data.Ord (comparing)
@@ -201,6 +202,8 @@ data State = State
   , sPointSize                     :: !(IORef Float)
   -- Corner suggestion options
   , sSuggestionCutoffFactor        :: !(IORef Float)
+  -- Wall moving
+  , sWallMoveStep                  :: !(IORef Float) -- ^ How many m to move into the direction
   -- Visual debugging
   , sDebugProjectPlanePointsToEq   :: !(IORef Bool)
   -- Transient state
@@ -216,10 +219,21 @@ data TransientState = TransientState
   , sRooms                         :: !(IORef (Map ID Room))
   , sSelectedRoom                  :: !(IORef (Maybe ID))
   , sConnectedWalls                :: !(IORef [(Axis, WallRelation, ID, ID)])
+  , sMoveTarget                    :: !(IORef MoveTarget)
   }
 
 instance Show TransientState where
   show _ = "TransientState"
+
+
+data MoveTarget = MoveRoom | MoveWall
+  deriving (Eq, Ord, Bounded, Enum, Show, Generic)
+
+
+cycleEnum :: forall a . (Bounded a, Enum a) => a -> a
+cycleEnum e = ( [e..maxBound] ++ [minBound..maxBound] ) !! 1
+-- Yay laziness! This is the boring alternative:
+-- cycleEnum = toEnum . (\x -> (x+1) `mod` (fromEnum (maxBound :: a) + 1)) . fromEnum
 
 
 data Save_v1 = Save_v1
@@ -926,12 +940,13 @@ input state (Char 'W') Down _ _ = connectWalls state Same
 input state (Char '\^W') Down _ _ = disconnectWalls state
 input state (Char 'o') Down _ _ = optimizeRoomPositions state
 input state (Char 'e') Down _ _ = exportRoomProjection state
-input state (SpecialKey KeyUp      ) Down _ _ = moveSelectedRoom state (Vec3   0    0 (-1))
-input state (SpecialKey KeyDown    ) Down _ _ = moveSelectedRoom state (Vec3   0    0   1 )
-input state (SpecialKey KeyLeft    ) Down _ _ = moveSelectedRoom state (Vec3 (-1)   0   0 )
-input state (SpecialKey KeyRight   ) Down _ _ = moveSelectedRoom state (Vec3   1    0   0 )
-input state (SpecialKey KeyPageUp  ) Down _ _ = moveSelectedRoom state (Vec3   0    1   0 )
-input state (SpecialKey KeyPageDown) Down _ _ = moveSelectedRoom state (Vec3   0  (-1)  0 )
+input state (Char 'm') Down _ _ = switchMoveTarget state
+input state (SpecialKey KeyUp      ) Down _ _ = moveDirection state (Vec3   0    0 (-1))
+input state (SpecialKey KeyDown    ) Down _ _ = moveDirection state (Vec3   0    0   1 )
+input state (SpecialKey KeyLeft    ) Down _ _ = moveDirection state (Vec3 (-1)   0   0 )
+input state (SpecialKey KeyRight   ) Down _ _ = moveDirection state (Vec3   1    0   0 )
+input state (SpecialKey KeyPageUp  ) Down _ _ = moveDirection state (Vec3   0    1   0 )
+input state (SpecialKey KeyPageDown) Down _ _ = moveDirection state (Vec3   0  (-1)  0 )
 input _state key Down _ _ = putStrLn $ "Unhandled key " ++ show key
 input _state _ _ _ _ = return ()
 
@@ -1005,6 +1020,7 @@ createState = do
   sDisplayClouds    <- newIORef True
   sPointSize        <- newIORef 2.0
   sSuggestionCutoffFactor <- newIORef 1.2
+  sWallMoveStep     <- newIORef 0.01
   sDebugProjectPlanePointsToEq <- newIORef True -- It is a good idea to keep this on, always
   transient         <- createTransientState
 
@@ -1021,6 +1037,7 @@ createTransientState = do
   sRooms <- newIORef Map.empty
   sSelectedRoom <- newIORef Nothing
   sConnectedWalls <- newIORef []
+  sMoveTarget <- newIORef MoveRoom
   return TransientState{..}
 
 
@@ -2046,9 +2063,47 @@ exportRoomProjection state = do
   withSelectedRoom state (putStrLn . roomProjectionToString)
 
 
-moveSelectedRoom :: State -> Vec3 -> IO ()
-moveSelectedRoom state directionVec = withSelectedRoom state $ \r -> do
-  changeRoom state (roomID r) (translateRoom directionVec)
+switchMoveTarget :: State -> IO ()
+switchMoveTarget State{ transient = TransientState{ sMoveTarget } } = do
+  newMoveTarget <- cycleEnum <$> get sMoveTarget
+  sMoveTarget $= newMoveTarget
+  putStrLn $ "Move target: " ++ show newMoveTarget
+
+
+moveDirection :: State -> Vec3 -> IO ()
+moveDirection state@State{ transient = TransientState{..}, ..} directionVec = do
+  get sMoveTarget >>= \case
+    MoveRoom -> withSelectedRoom state $ \r -> do
+      updateRoom state (translateRoom directionVec r)
+    MoveWall -> do
+      get sSelectedPlanes >>= \case
+        [pid] -> do
+          Just p <- getAnyPlaneID state pid
+
+          step <- get sWallMoveStep
+          let movedPlane = translatePlane (step *& directionVec) p
+
+          rooms <- Map.elems <$> get sRooms
+          case findRoomContainingPlane rooms (planeID p) of
+            Just r -> do
+              let oldPlaneCorners   = V.toList (planeBounds p)
+                  movedPlaneCorners = V.toList (planeBounds movedPlane)
+              updateRoom state r
+                { roomPlanes = movedPlane : [ x | x <- roomPlanes r, x /= p ]
+                -- Also move the room corners if they were on the plane
+                -- Note: This is very fragile since floating-point comparison.
+                --       It works because the planes were created from the corners.
+                -- This does not fix the cuboid if one has already been fitted
+                -- to the room - the user has to fit it again after moving.
+                , roomCorners = if all (`elem` map snd (roomCorners r)) oldPlaneCorners
+                                  then [ (i, fromMaybe c . lookup c $ zip oldPlaneCorners movedPlaneCorners)
+                                       | (i, c) <- roomCorners r ]
+                                  else roomCorners r
+                }
+            _ -> do
+              sPlanes $~ Map.insert (planeID p) movedPlane
+        [] -> putStrLn "Nothing selected"
+        ps -> putStrLn $ show (length ps) ++ " walls selected, need 1"
 
 
 roomProjectionToString :: Room -> String
