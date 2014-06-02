@@ -12,7 +12,7 @@ module Main where
 
 import           Control.Applicative
 import           Control.Concurrent
-import           Control.Exception (assert, try)
+import           Control.Exception (assert, try, throwIO, ErrorCall(..))
 import           Control.Monad
 import           Data.Attoparsec.ByteString.Char8 (parseOnly, sepBy1', double, endOfLine, skipSpace)
 import           Data.Bits (unsafeShiftR)
@@ -1862,7 +1862,7 @@ disconnectWalls State{ transient = TransientState{..}, ..} = do
 
 
 optimizeRoomPositions :: State -> IO ()
-optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..} } = do
+optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..} } = catchSingular $ do
   rooms <- Map.elems <$> get sRooms
   conns <- get sConnectedWalls
 
@@ -1920,6 +1920,14 @@ optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..
           changeRoom state rid $ \r ->
             let oldRoomCenterComp = getComponent axis (cornerMean r)
              in translateRoom ( (newRoomCenterComp - oldRoomCenterComp) `along` axis) r
+
+
+-- Because `linearSolve` and friends call `error` on singular systems.
+catchSingular :: IO () -> IO ()
+catchSingular f = try f >>= \case
+  Right r -> return r
+  Left (ErrorCall "linearSolverLSR: singular") -> putStrLn "WARNING: caught singularity error"
+  Left err -> throwIO err
 
 
 getComponent :: Axis -> Vec3 -> Float
