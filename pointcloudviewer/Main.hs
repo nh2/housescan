@@ -212,7 +212,7 @@ data TransientState = TransientState
   , sPickingMode                   :: !(IORef Bool)
   , sAllocatedClouds               :: !(IORef (Map ID (Cloud, BufferObject, Maybe BufferObject))) -- second is for colours
   , sPlanes                        :: !(IORef (Map ID Plane))
-  , sSelectedPlanes                :: !(IORef [Plane]) -- TODO these should be IDs (otherwise they don't notice changes)
+  , sSelectedPlanes                :: !(IORef [ID])
   , sRooms                         :: !(IORef (Map ID Room))
   , sSelectedRoom                  :: !(IORef (Maybe ID))
   , sConnectedWalls                :: !(IORef [(Axis, WallRelation, ID, ID)])
@@ -949,11 +949,6 @@ objectClick state@State{ transient = TransientState{..}, ..} (Just i) = do
   putStrLn $ "Clicked: " ++ show i
 
   rooms <- Map.elems <$> get sRooms
-  allPlanes <- do
-    planes <- Map.elems <$> get sPlanes
-    return (planes ++ concatMap roomPlanes rooms)
-
-  selected <- get sSelectedPlanes
 
   case findRoomContainingPlane rooms i of
     Nothing -> sSelectedRoom $= Nothing
@@ -961,11 +956,14 @@ objectClick state@State{ transient = TransientState{..}, ..} (Just i) = do
       putStrLn $ "Room: " ++ show roomID ++ " (" ++ roomName ++ ")"
       sSelectedRoom $= Just roomID
 
-  for_ (find (\Plane{ planeID } -> planeID == i) allPlanes) $ \p -> do
-    putStrLn $ "Plane: " ++ show (planeID p)
-    putStrLn $ "PlaneEq: " ++ show (planeEq p)
-    when (p `notElem` selected) $ do -- could compare by ID only
-      sSelectedPlanes $~ (p:)
+  getAnyPlaneID state i >>= \case
+    Nothing -> return ()
+    Just p -> do
+      putStrLn $ "Plane: " ++ show i
+      putStrLn $ "PlaneEq: " ++ show (planeEq p)
+      selected <- get sSelectedPlanes
+      when (i `notElem` selected) $ do
+        sSelectedPlanes $~ (i:)
 
   -- Suggested corner click
   for_ (findRoomContainingSuggestedCorner rooms i) $ \r -> do
@@ -1350,17 +1348,27 @@ red :: Color3 GLfloat
 red = Color3 1 0 0
 
 
+
+getAnyPlaneID :: State -> ID -> IO (Maybe Plane)
+getAnyPlaneID State{ transient = TransientState{ sRooms, sPlanes } } i = do
+  allPlanes <- do
+    planes <- Map.elems <$> get sPlanes
+    rooms <- Map.elems <$> get sRooms
+    return (planes ++ concatMap roomPlanes rooms)
+  return $ find (\Plane{ planeID } -> planeID == i) allPlanes
+
+
 deleteSelectedPlane :: State -> IO ()
 deleteSelectedPlane state@State{ transient = TransientState{..}, ..} = do
   get sSelectedPlanes >>= \case
-      [p]-> do
+      [pid]-> do
         -- First check if p is part of a room.
         rooms <- Map.elems <$> get sRooms
-        case findRoomContainingPlane rooms (planeID p) of
+        case findRoomContainingPlane rooms pid of
           Just r -> do
-            updateRoom state r{ roomPlanes = [ p' | p' <- roomPlanes r, planeID p' /= planeID p ] }
+            updateRoom state r{ roomPlanes = [ p' | p' <- roomPlanes r, planeID p' /= pid ] }
           _ -> do
-            sPlanes $~ Map.delete (planeID p)
+            sPlanes $~ Map.delete pid
 
       ps -> putStrLn $ show (length ps) ++ " planes selected, need 3"
 
@@ -1377,12 +1385,14 @@ addCornerToRoom state sugg r = do
 addCornerPoint :: State -> IO ()
 addCornerPoint state@State{ transient = TransientState{..}, ..} = do
   get sSelectedPlanes >>= \case
-    [p1,p2,p3]-> do
+    pids@[_,_,_] -> do
+      [Just p1, Just p2, Just p3] <- mapM (getAnyPlaneID state) pids
+
       let corner = planeCorner (planeEq p1) (planeEq p2) (planeEq p3)
 
       -- First check if p1 is part of a room.
       rooms <- Map.elems <$> get sRooms
-      case [ r | pid <- map planeID [p1, p2, p3]
+      case [ r | pid <- pids
                , Just r <- [findRoomContainingPlane rooms pid] ] of
         [r@Room{ roomID = i },r2,r3] | roomID r2 == i && roomID r3 == i -> do
           case roomCorners r of
@@ -1511,9 +1521,10 @@ withSelectedRoom State{ transient = TransientState{ .. } } f = do
 rotateSelectedPlanes :: State -> IO ()
 rotateSelectedPlanes state@State{ transient = TransientState{..}, ..} = do
   get sSelectedPlanes >>= \case
-    [p1,p2] -> do
+    [pid1, pid2] -> do
       -- We want to rotate p1.
-      let pid1 = planeID p1
+      [Just p1, Just p2] <- mapM (getAnyPlaneID state) [pid1, pid2]
+
       -- First check if p1 is part of a room.
       rooms <- Map.elems <$> get sRooms
       case findRoomContainingPlane rooms pid1 of
@@ -1860,9 +1871,7 @@ clearSelections State{ transient = TransientState{..}, ..} = do
 swapRoomPositions :: State -> IO ()
 swapRoomPositions state@State{ transient = TransientState{..}, ..} = do
   get sSelectedPlanes >>= \case
-    [p1,p2] -> do
-      let pid1 = planeID p1
-          pid2 = planeID p2
+    [pid1, pid2] -> do
       rooms <- Map.elems <$> get sRooms
       case (findRoomContainingPlane rooms pid1, findRoomContainingPlane rooms pid2) of
         (Just room1, Just room2) -> do
@@ -1892,18 +1901,19 @@ autoAlignAndRotate state = withSelectedRoom state $ \r -> do
 
 
 connectWalls :: State -> WallRelation -> IO ()
-connectWalls State{ transient = TransientState{..}, ..} relation = do
+connectWalls state@State{ transient = TransientState{..}, ..} relation = do
   get sSelectedPlanes >>= \case
-    [p1,p2] -> do
-      let pid1 = planeID p1
-          pid2 = planeID p2
+    [pid1, pid2] -> do
+
       rooms <- Map.elems <$> get sRooms
       case (findRoomContainingPlane rooms pid1, findRoomContainingPlane rooms pid2) of
         (Just room1, Just room2) -> do
           putStrLn $ "Connecting rooms " ++ show (roomID room1, roomID room2) ++ " via wall planes " ++ show (pid1, pid2)
 
-          let PlaneEq n1 _ = planeEq p1
-              PlaneEq n2 _ = planeEq p2
+          [Just p1, Just p2] <- mapM (getAnyPlaneID state) [pid1, pid2]
+          let PlaneEq n1 _  = planeEq p1
+              PlaneEq n2 _  = planeEq p2
+
           let bestAxis n = snd $ maximum [ (abs (fromNormal n `dotprod` v), ax) | (v, ax) <- [(vec3X, X), (vec3Y, Y), (vec3Z, Z)] ]
 
           case (bestAxis n1, bestAxis n2) of
@@ -1925,9 +1935,7 @@ connectWalls State{ transient = TransientState{..}, ..} relation = do
 disconnectWalls :: State -> IO ()
 disconnectWalls State{ transient = TransientState{..}, ..} = do
   get sSelectedPlanes >>= \case
-    [p1,p2] -> do
-      let pid1 = planeID p1
-          pid2 = planeID p2
+    [pid1, pid2] -> do
 
       putStrLn $ "Disconnecting walls " ++ show (pid1, pid2)
 
