@@ -1203,8 +1203,8 @@ loadPCDFileXyzFloat file = V.map v3toVec3 <$> PCD.loadXyz file
   where
     v3toVec3 (V3 a b c) = Vec3 a b c
 
-loadPCDFileXyzNormalFloat :: FilePath -> IO (Vector Vec3, Vector Vec3)
-loadPCDFileXyzNormalFloat file = do
+loadPCDFileXyzRgbNormalFloat :: FilePath -> IO (Vector Vec3, Vector Vec3)
+loadPCDFileXyzRgbNormalFloat file = do
   ps <- PCD.loadXyzRgbNormal file
   return (V.map (v3toVec3 . PCD.xyz) ps, V.map (rgbToFloats . PCD.rgb) ps)
   where
@@ -1220,7 +1220,7 @@ cloudFromFile state file = do
   if not (V.null p1)
     then return $ Cloud i (OneColor $ Color3 1 0 0) p1
     else do
-      (p2, colors) <- loadPCDFileXyzNormalFloat file
+      (p2, colors) <- loadPCDFileXyzRgbNormalFloat file
       return $ Cloud i (ManyColors colors) p2
 
 
