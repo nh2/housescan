@@ -1758,10 +1758,7 @@ loadFrom state@State{ transient = TransientState{..} } path = do
     Left (e :: IOError) -> print e
     Right bs -> case runGet safeGet bs of
 
-      Right Save{ saveRooms, saveConnectedWalls } -> do
-        sRooms $= saveRooms
-        forM_ (Map.elems saveRooms) (updateRoom state) -- allocates room clouds
-        sConnectedWalls $= saveConnectedWalls
+      Right s -> loadSave s
 
       Left nonLegacyErr -> do
         -- Try legacy load where only the Map ID Room was in the bytestring
@@ -1769,8 +1766,13 @@ loadFrom state@State{ transient = TransientState{..} } path = do
           Left _ -> putStrLn $ "Failed loading " ++ path ++ ": " ++ nonLegacyErr -- use the non legacy error message here
           Right (rooms :: Map ID Room) -> do
             putStrLn "Legacy load succeeded!"
-            sRooms $= rooms
-            forM_ (Map.elems rooms) (updateRoom state) -- allocates room clouds
+            loadSave $ migrate Save_v1{ saveRooms_v1 = rooms }
+  where
+    loadSave :: Save -> IO ()
+    loadSave Save{ saveRooms, saveConnectedWalls } = do
+      sRooms $= saveRooms
+      forM_ (Map.elems saveRooms) (updateRoom state) -- allocates room clouds
+      sConnectedWalls $= saveConnectedWalls
 
 
 clearRooms :: State -> IO ()
