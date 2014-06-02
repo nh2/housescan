@@ -674,15 +674,15 @@ drawPlanes :: State -> IO ()
 drawPlanes State{ transient = TransientState{ sPlanes, sRooms, sPickingMode }, ..} = do
 
   planePols <- Map.elems <$> get sPlanes
-  roomPlanes <- concatMap roomPlanes . Map.elems <$> get sRooms
+  wallPlanes <- concatMap roomPlanes . Map.elems <$> get sRooms
 
   debugProject <- get sDebugProjectPlanePointsToEq
   let roomPols
         -- This reveals bugs in the plane projection code: It uses the
         -- actual plane equation for drawing the points.
-        | debugProject = [ p{ planeBounds = V.map (projectToPlane eq) points
-                            } | p@(Plane _ eq _ points) <- roomPlanes ]
-        | otherwise = roomPlanes
+        | debugProject = [ p{ planeBounds = V.map (projectToPlane eq) points }
+                         | p@(Plane _ eq _ points) <- wallPlanes ]
+        | otherwise = wallPlanes
 
   let pols = planePols ++ roomPols
 
