@@ -115,6 +115,11 @@ data Cloud = Cloud
   , cloudPoints :: Vector Vec3
   } deriving (Eq, Ord, Show, Generic, Typeable)
 
+instance ContainsIDs Cloud where
+  getIDs c = [cloudID c]
+  bumpIDsBy n c = c{ cloudID = cloudID c + n }
+
+
 data DragMode = Rotate | Translate
   deriving (Eq, Ord, Show, Typeable)
 
@@ -226,6 +231,13 @@ data Save = Save
   , saveConnectedWalls :: [(Axis, WallRelation, ID, ID)]
   } deriving (Eq, Ord, Show, Generic)
 
+instance ContainsIDs Save where
+  getIDs (Save rooms _) = concatMap getIDs (Map.elems rooms)
+  bumpIDsBy n s = s
+    { saveRooms = Map.mapKeys (+n) . Map.map (bumpIDsBy n) $ saveRooms s
+    , saveConnectedWalls = [ (a, wr, i1+n, i2+n) | (a, wr, i1, i2) <- saveConnectedWalls s ]
+    }
+
 
 data Plane = Plane
   { planeID     :: !ID
@@ -234,6 +246,9 @@ data Plane = Plane
   , planeBounds :: Vector Vec3
   } deriving (Eq, Ord, Show, Generic)
 
+instance ContainsIDs Plane where
+  getIDs p = [planeID p]
+  bumpIDsBy n p = p{ planeID = planeID p + n }
 
 -- Convenience
 planeNormal :: Plane -> Vec3
@@ -277,6 +292,20 @@ data Room = Room
   , roomName    :: !String
   } deriving (Eq, Ord, Show, Generic)
 
+instance ContainsIDs Room where
+  getIDs (Room i planes cloud corners suggs _ _)
+    = [i]
+      ++ concatMap getIDs planes
+      ++ getIDs cloud
+      ++ map fst corners
+      ++ map fst suggs
+  bumpIDsBy n r = r
+    { roomID = roomID r + n
+    , roomPlanes = map (bumpIDsBy n) (roomPlanes r)
+    , roomCloud = bumpIDsBy n (roomCloud r)
+    , roomCorners = [ (i+n, c) | (i, c) <- roomCorners r ]
+    , roomSuggestedCorners = [ (i+n, c) | (i, c) <- roomSuggestedCorners r ]
+    }
 
 data Axis = X | Y | Z
   deriving (Eq, Ord, Show, Generic)
@@ -305,6 +334,11 @@ zipGenIDs :: State -> [a] -> IO [(ID, a)]
 zipGenIDs state xs = forM xs $ \c -> do
   cornerId <- genID state
   return (cornerId, c)
+
+
+class ContainsIDs a where
+  getIDs :: a -> [ID]
+  bumpIDsBy :: ID -> a -> a
 
 
 -- |Sets the vertex color
@@ -1774,7 +1808,22 @@ loadFrom state@State{ transient = TransientState{..} } path = do
             loadSave $ migrate Save_v1{ saveRooms_v1 = rooms }
   where
     loadSave :: Save -> IO ()
-    loadSave Save{ saveRooms, saveConnectedWalls } = do
+    loadSave s = do
+      -- Make sure we don't get ID conflicts by bumping the IDs of loaded
+      -- objects higher than sNextID.
+      nextID <- get sNextID
+
+      -- Note that bumping by nextID is a bit more than needed since
+      -- our IDs currently start at 1, but who cares.
+      let saveWithBumpedIDs = bumpIDsBy nextID s
+          newNextID = maximum (getIDs saveWithBumpedIDs) + 1
+
+      sNextID $= newNextID
+
+      loadIDsAdjustedSave saveWithBumpedIDs
+
+    loadIDsAdjustedSave :: Save -> IO ()
+    loadIDsAdjustedSave Save{ saveRooms, saveConnectedWalls } = do
       sRooms $= saveRooms
       forM_ (Map.elems saveRooms) (updateRoom state) -- allocates room clouds
       sConnectedWalls $= saveConnectedWalls
