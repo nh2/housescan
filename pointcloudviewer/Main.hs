@@ -216,6 +216,11 @@ instance Show TransientState where
   show _ = "TransientState"
 
 
+data Save = Save
+  { saveRooms :: Map ID Room
+  } deriving (Eq, Ord, Show, Generic)
+
+
 data Plane = Plane
   { planeID     :: !ID
   , planeEq     :: !PlaneEq
@@ -1728,7 +1733,7 @@ saveTo :: State -> FilePath -> IO ()
 saveTo State{ transient = TransientState{ sRooms } } path = do
   putStrLn $ "Saving rooms to " ++ path
   rooms <- get sRooms
-  BS.writeFile path $ runPut (safePut rooms)
+  BS.writeFile path . runPut . safePut $ Save { saveRooms = rooms }
   putStrLn "saved"
 
 
@@ -1742,10 +1747,19 @@ loadFrom state@State{ transient = TransientState{ sRooms } } path = do
   try (BS.readFile path) >>= \case
     Left (e :: IOError) -> print e
     Right bs -> case runGet safeGet bs of
-      Left err -> putStrLn $ "Failed loading " ++ path ++ ": " ++ err
-      Right rooms -> do
-        sRooms $= rooms
-        forM_ (Map.elems rooms) (updateRoom state) -- allocates room clouds
+
+      Right Save{ saveRooms } -> do
+        sRooms $= saveRooms
+        forM_ (Map.elems saveRooms) (updateRoom state) -- allocates room clouds
+
+      Left nonLegacyErr -> do
+        -- Try legacy load where only the Map ID Room was in the bytestring
+        case runGet safeGet bs of
+          Left _ -> putStrLn $ "Failed loading " ++ path ++ ": " ++ nonLegacyErr -- use the non legacy error message here
+          Right (rooms :: Map ID Room) -> do
+            putStrLn "Legacy load succeeded!"
+            sRooms $= rooms
+            forM_ (Map.elems rooms) (updateRoom state) -- allocates room clouds
 
 
 clearRooms :: State -> IO ()
@@ -2294,3 +2308,5 @@ deriveSafeCopy 4 'extension ''Room
 instance Migrate Room where
   type MigrateFrom Room = Room_v3
   migrate (Room_v3 i planes cloud corners proj name) = Room i planes cloud [ (0,c) | c <- corners] [] proj name -- Dirty hack
+
+deriveSafeCopy 1 'base ''Save
