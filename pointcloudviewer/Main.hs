@@ -217,8 +217,13 @@ instance Show TransientState where
   show _ = "TransientState"
 
 
+data Save_v1 = Save_v1
+  { saveRooms_v1 :: Map ID Room
+  } deriving (Eq, Ord, Show, Generic)
+
 data Save = Save
-  { saveRooms :: Map ID Room
+  { saveRooms          :: Map ID Room
+  , saveConnectedWalls :: [(Axis, WallRelation, ID, ID)]
   } deriving (Eq, Ord, Show, Generic)
 
 
@@ -1731,10 +1736,14 @@ save state = saveTo state "save.safecopy"
 
 
 saveTo :: State -> FilePath -> IO ()
-saveTo State{ transient = TransientState{ sRooms } } path = do
+saveTo State{ transient = TransientState{..} } path = do
   putStrLn $ "Saving rooms to " ++ path
   rooms <- get sRooms
-  BS.writeFile path . runPut . safePut $ Save { saveRooms = rooms }
+  connectedWalls <- get sConnectedWalls
+  BS.writeFile path . runPut . safePut $ Save
+    { saveRooms = rooms
+    , saveConnectedWalls = connectedWalls
+    }
   putStrLn "saved"
 
 
@@ -1743,15 +1752,16 @@ load state = loadFrom state "save.safecopy"
 
 
 loadFrom :: State -> FilePath -> IO ()
-loadFrom state@State{ transient = TransientState{ sRooms } } path = do
+loadFrom state@State{ transient = TransientState{..} } path = do
   putStrLn $ "Loading rooms from " ++ path
   try (BS.readFile path) >>= \case
     Left (e :: IOError) -> print e
     Right bs -> case runGet safeGet bs of
 
-      Right Save{ saveRooms } -> do
+      Right Save{ saveRooms, saveConnectedWalls } -> do
         sRooms $= saveRooms
         forM_ (Map.elems saveRooms) (updateRoom state) -- allocates room clouds
+        sConnectedWalls $= saveConnectedWalls
 
       Left nonLegacyErr -> do
         -- Try legacy load where only the Map ID Room was in the bytestring
@@ -2339,4 +2349,10 @@ instance Migrate Room where
   type MigrateFrom Room = Room_v3
   migrate (Room_v3 i planes cloud corners proj name) = Room i planes cloud [ (0,c) | c <- corners] [] proj name -- Dirty hack
 
-deriveSafeCopy 1 'base ''Save
+deriveSafeCopy 1 'base ''WallRelation
+deriveSafeCopy 1 'base ''Axis
+deriveSafeCopy 1 'base ''Save_v1
+deriveSafeCopy 2 'extension ''Save
+instance Migrate Save where
+  type MigrateFrom Save = Save_v1
+  migrate (Save_v1 rooms) = Save rooms []
