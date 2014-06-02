@@ -1221,7 +1221,9 @@ cloudFromFile state file = do
     then return $ Cloud i (OneColor $ Color3 1 0 0) p1
     else do
       (p2, colors) <- loadPCDFileXyzRgbNormalFloat file
-      return $ Cloud i (ManyColors colors) p2
+      if not (V.null p2)
+        then return $ Cloud i (ManyColors colors) p2
+        else error $ "File " ++ file ++ " contains no points!" -- TODO This is not clean
 
 
 loadPCDFile :: State -> FilePath -> IO ()
