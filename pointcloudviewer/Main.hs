@@ -292,6 +292,9 @@ type ID = Word32
 noID :: ID
 noID = maxBound
 
+_FIRST_ID :: ID
+_FIRST_ID = 1
+
 
 genID :: State -> IO ID
 genID State{ transient = TransientState{ sNextID } } =
@@ -978,7 +981,7 @@ createState = do
 
 createTransientState :: IO TransientState
 createTransientState = do
-  sNextID <- newIORef 1
+  sNextID <- newIORef _FIRST_ID
   sPickingMode <- newIORef False
   sAllocatedClouds <- newIORef Map.empty
   sPlanes <- newIORef Map.empty
