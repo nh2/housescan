@@ -50,6 +50,7 @@ import           Linear (V3(..))
 import           Numeric.LinearAlgebra.Algorithms (linearSolve)
 import qualified PCD.Data as PCD
 import qualified PCD.Point as PCD
+import           System.Directory (createDirectoryIfMissing)
 import           System.Endian (fromBE32)
 import           System.FilePath ((</>), takeFileName, takeDirectory)
 import           System.Random (randomRIO)
@@ -1992,6 +1993,24 @@ roomProjectionToString Room{ roomProj }
          (Vec4 m n o p) = transpose $ fromProjective roomProj
 
 
+-- | Formats in the the .xf file format, as used for the `plyxform` tool for
+-- transforming .ply files.
+roomProjectionToXfFormat :: Room -> String
+roomProjectionToXfFormat Room{ roomProj }
+  = unlines $ map (unwords . (map show)) [[a,b,c,d]
+                                         ,[e,f,g,h]
+                                         ,[i,j,k,l]
+                                         ,[m,n,o,p]]
+  where
+    -- `roomProj :: Proj4` uses right-multiplication and so stores the
+    -- 4x4 transposed to how most applications deal with it. We want to
+    -- export the left-multiplicative form, so we have to transpose.
+    Mat4 (Vec4 a b c d)
+         (Vec4 e f g h)
+         (Vec4 i j k l)
+         (Vec4 m n o p) = transpose $ fromProjective roomProj
+
+
 exportAllRoomPCLTransforms :: State -> IO ()
 exportAllRoomPCLTransforms State{ transient = TransientState{ sRooms } } = do
   rooms <- Map.elems <$> get sRooms
@@ -2002,6 +2021,17 @@ exportAllRoomPCLTransforms State{ transient = TransientState{ sRooms } } = do
                ++ roomName r ++ " " ++ (takeFileName . takeDirectory . takeDirectory $ roomName r) ++ "-placed.pcd"
                ++ " -matrix " ++ roomProjectionToString r
 
+
+exportAllRoomXfFiles :: State -> IO ()
+exportAllRoomXfFiles State{ transient = TransientState{ sRooms } } = do
+  rooms <- Map.elems <$> get sRooms
+
+  createDirectoryIfMissing False "xf"
+
+  forM_ rooms $ \r -> do
+
+    print (roomName r)
+    writeFile ("xf" </> (takeFileName . takeDirectory $ roomName r) ++ ".xf") (roomProjectionToXfFormat r)
 
 
 -- Infinite list of Cantor pairs:
