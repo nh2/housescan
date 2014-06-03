@@ -59,6 +59,7 @@ import           System.SelfRestart (forkSelfRestartExePollWithAction)
 import           System.IO (hPutStrLn, stderr)
 
 import           FitCuboidBFGS hiding (main)
+import           GroupConnectedComponents (groupConnectedComponents)
 import           TranslationOptimizer (lstSqDistances)
 import           HoniHelper (takeDepthSnapshot)
 import           VectorUtil (kthLargestBy)
@@ -2000,32 +2001,49 @@ optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..
                                                 Same     -> 0
           ]
 
-        -- Find the optimal position of the rooms along `axis`.
-        -- This returns the first room being 0 along the axis, and the other rooms
-        -- at positions that minimize the square error from the desired distances.
-        newRoomCenters :: Map ID Float
-        newRoomCenters = realToFrac <$> lstSqDistances (Map.fromList desiredCenterOffsets)
-
-        -- TODO If we are working on an axis and have 4 rooms that are connected
-        --      pairwise and independent of each other, say A-B C-D, then
-        --      lstSqDistances will set both A and C to 0 and thus have them
-        --      fall together. Deal with that e.g. by doing optimisation
-        --      separately on connected components.
-
     -- Check if there is any room to move on this axis
     case [ r | (_,_,r,_,ax,_) <- wallsRooms, ax == axis ] of
       [] -> putStrLn $ "Don't need to align along " ++ show axis ++ " axis"
       firstRoom:_ -> do
-        -- We want the first room to be at its original position instead of at 0,
-        -- so shift the optimized room positions by that original position.
-        let firstRoomCenterComp = getComponent axis $ cornerMean firstRoom
-            newRoomCentersFromFirst = (+ firstRoomCenterComp) <$> newRoomCenters
 
-        -- Translate all rooms to their new positions.
-        forM_ (Map.toList newRoomCentersFromFirst) $ \(rid, newRoomCenterComp) -> do
-          changeRoom state rid $ \r ->
-            let oldRoomCenterComp = getComponent axis (cornerMean r)
-             in translateRoom ( (newRoomCenterComp - oldRoomCenterComp) `along` axis) r
+        -- Underconstrained positions:
+        --
+        -- If the room connections do not fully constrain the optimal room
+        -- positions along `axis`, there are problems:
+        --
+        -- If we are working on an axis and have 4 rooms that are connected
+        -- pairwise and independent of each other, say A-B C-D, then
+        -- lstSqDistances will set both A and C to 0 and thus have them
+        -- fall together. In other cases, having too few constraints might
+        -- move the "free" rooms to arbitrary positions (in practice, it seems
+        -- to pick 0 or hugely positive/negative numbers).
+        --
+        -- We prevent these problems by doing the optimisation separately within
+        -- the connected components of the room connection graph (of `axis`).
+        -- That way, each system is never underconstrained.
+        let connectedComponents = groupConnectedComponents desiredCenterOffsets
+
+        putStrLn $ "Aligning the " ++ show axis ++ " (" ++ show (length connectedComponents) ++ " components)"
+
+        forM_ connectedComponents $ \comp -> do
+
+          -- For the current connected component of the connection graph for
+          -- `axis`, find the optimal position of each room.
+          -- This returns the first room being 0 along the axis, and the other rooms
+          -- at positions that minimize the square error from the desired distances.
+          let newRoomCenters :: Map ID Float
+              newRoomCenters = realToFrac <$> lstSqDistances (Map.fromList comp)
+
+          -- We want the first room to be at its original position instead of at 0,
+          -- so shift the optimized room positions by that original position.
+          let firstRoomCenterComp = getComponent axis $ cornerMean firstRoom
+              newRoomCentersFromFirst = (+ firstRoomCenterComp) <$> newRoomCenters
+
+          -- Translate all rooms to their new positions.
+          forM_ (Map.toList newRoomCentersFromFirst) $ \(rid, newRoomCenterComp) -> do
+            changeRoom state rid $ \r ->
+              let oldRoomCenterComp = getComponent axis (cornerMean r)
+               in translateRoom ( (newRoomCenterComp - oldRoomCenterComp) `along` axis) r
 
 
 -- Because `linearSolve` and friends call `error` on singular systems.
