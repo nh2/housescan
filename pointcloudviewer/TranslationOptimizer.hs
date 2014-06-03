@@ -5,7 +5,6 @@ module TranslationOptimizer
   ) where
 
 import Data.Map (Map)
-import Data.Maybe
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Packed.Matrix
@@ -19,9 +18,8 @@ biject xs = (indexOf, aOfIndex)
     uniqueAs = ordNub xs
     indexToAMap = Map.fromList $ zip [(0::Int)..] uniqueAs
     aToIndexMap = Map.fromList $ zip uniqueAs     [0..]
-    get x = fromMaybe (error "biject") . Map.lookup x
-    indexOf x = get x aToIndexMap
-    aOfIndex x = get x indexToAMap
+    indexOf x  = let Just v = Map.lookup x aToIndexMap in v
+    aOfIndex x = let Just v = Map.lookup x indexToAMap in v
 
 
 
