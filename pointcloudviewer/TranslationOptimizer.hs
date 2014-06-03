@@ -6,20 +6,11 @@ module TranslationOptimizer
 
 import Data.Map (Map)
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 import Data.Packed.Matrix
 import Data.Packed.Vector
 import Numeric.LinearAlgebra.Algorithms (linearSolveLS)
 
-
-biject :: (Ord a) => [a] -> (a -> Int, Int -> a)
-biject xs = (indexOf, aOfIndex)
-  where
-    uniqueAs = ordNub xs
-    indexToAMap = Map.fromList $ zip [(0::Int)..] uniqueAs
-    aToIndexMap = Map.fromList $ zip uniqueAs     [0..]
-    indexOf x  = let Just v = Map.lookup x aToIndexMap in v
-    aOfIndex x = let Just v = Map.lookup x indexToAMap in v
+import Bijection (biject)
 
 
 
@@ -56,10 +47,3 @@ lstSqDistancesI distMap = points
     [x] = toColumns $ linearSolveLS a b -- TODO Figure out how to catch `ghc: linearSolverLSR: singular`
     points = 0.0 : toList x -- prepend a 0 for x_0
 
-
-ordNub :: (Ord a) => [a] -> [a]
-ordNub l = go Set.empty l
-  where
-    go _ [] = []
-    go s (x:xs) = if x `Set.member` s then go s xs
-                                      else x : go (Set.insert x s) xs
