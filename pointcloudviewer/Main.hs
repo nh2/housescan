@@ -1969,7 +1969,7 @@ disconnectWalls State{ transient = TransientState{..}, ..} = do
 
 
 optimizeRoomPositions :: State -> IO ()
-optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..} } = catchSingular $ do
+optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..} } = do
   rooms <- Map.elems <$> get sRooms
   conns <- get sConnectedWalls
 
@@ -2025,7 +2025,7 @@ optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..
 
         putStrLn $ "Aligning the " ++ show axis ++ " (" ++ show (length connectedComponents) ++ " components)"
 
-        forM_ connectedComponents $ \comp -> do
+        forM_ connectedComponents $ \comp -> catchSingular $ do
 
           -- For the current connected component of the connection graph for
           -- `axis`, find the optimal position of each room.
