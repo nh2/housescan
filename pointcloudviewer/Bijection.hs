@@ -3,6 +3,7 @@ module Bijection
   ) where
 
 import qualified Data.Map as Map
+import qualified Data.IntMap as IntMap
 import qualified Data.Set as Set
 
 
@@ -13,10 +14,10 @@ biject :: (Ord a) => [a] -> (a -> Int, Int -> a)
 biject xs = (indexOf, aOfIndex)
   where
     uniqueAs = ordNub xs
-    indexToAMap = Map.fromList $ zip [(0::Int)..] uniqueAs
-    aToIndexMap = Map.fromList $ zip uniqueAs     [0..]
-    indexOf x  = let Just v = Map.lookup x aToIndexMap in v
-    aOfIndex x = let Just v = Map.lookup x indexToAMap in v
+    indexToAMap = IntMap.fromList $ zip [(0::Int)..] uniqueAs
+    aToIndexMap = Map.fromList    $ zip uniqueAs     [0..]
+    indexOf x  = let Just v = Map.lookup    x aToIndexMap in v
+    aOfIndex x = let Just v = IntMap.lookup x indexToAMap in v
 
 
 -- From https://github.com/nh2/haskell-ordnub
