@@ -444,12 +444,15 @@ display state@State{..} = do
 
 
 createMenu :: State -> Menu
-createMenu state@State{ sWallThickness } = Menu
+createMenu state@State{ sWallThickness, sWallMoveStep } = Menu
   [ SubMenu "Wall thickness" $ Menu
       [ MenuEntry (show t ++ " cm") (sWallThickness $= fromCm t)
       | t <- ([0..10] ++ [12,14..20] ++ [25,30..60] :: [Int]) ]
   , SubMenu "Move target" $ Menu
       [ MenuEntry (show mt) (setMoveTarget state mt) | mt <- enumAll :: [MoveTarget] ]
+  , SubMenu "Wall move step" $ Menu
+      [ MenuEntry (show s ++ " cm") (sWallMoveStep $= fromCm s)
+      | s <- [1,10,100] :: [Int] ]
   ]
   where
     fromCm :: Int -> Float
