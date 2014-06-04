@@ -1,7 +1,6 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase, MultiWayIf, ScopedTypeVariables, TypeSynonymInstances, ParallelListComp, PatternGuards #-}
+{-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase, MultiWayIf, ScopedTypeVariables, TypeSynonymInstances, ParallelListComp #-}
 {-# LANGUAGE DeriveGeneric, StandaloneDeriving, FlexibleContexts, TypeOperators, DeriveDataTypeable #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -13,7 +12,7 @@ module Main where
 
 import           Control.Applicative
 import           Control.Concurrent
-import           Control.Exception (assert, try, throwIO, ErrorCall(..), evaluate)
+import           Control.Exception (assert, try)
 import           Control.Monad
 import           Data.Attoparsec.ByteString.Char8 (parseOnly, sepBy1', double, endOfLine, skipSpace)
 import           Data.Bits (unsafeShiftR)
@@ -49,21 +48,19 @@ import           GHC.Generics
 import           Graphics.GLUtil
 import           Graphics.UI.GLUT hiding (Plane, Normal3)
 import           Linear (V3(..))
-import qualified Numeric.LinearAlgebra.Algorithms as Hmatrix
 import qualified PCD.Data as PCD
 import qualified PCD.Point as PCD
 import           System.Directory (createDirectoryIfMissing)
 import           System.Endian (fromBE32)
-import           System.IO.Unsafe (unsafePerformIO)
 import           System.FilePath ((</>), takeFileName, takeDirectory)
 import           System.Random (randomRIO)
 import           System.SelfRestart (forkSelfRestartExePollWithAction)
 import           System.IO (hPutStrLn, stderr)
 import           Text.Printf (printf)
-import           Text.Regex (mkRegex, matchRegex)
 
 import           FitCuboidBFGS hiding (main)
 import           GroupConnectedComponents (groupConnectedComponents)
+import           HmatrixUtils (safeLinearSolve)
 import           TranslationOptimizer (lstSqDistances)
 import           HoniHelper (takeDepthSnapshot)
 import           VectorUtil (kthLargestBy)
@@ -1365,7 +1362,7 @@ planeCorner (PlaneEq n1 d1)
                 , d a3, d b3, d c3 ]
     rhs = (3><1)[ d d1, d d2, d d3 ]
     res = do -- Maybe monad
-      [x,y,z] <- HmatrixVec.toList . Matrix.flatten <$> linearSolve lhs rhs
+      [x,y,z] <- HmatrixVec.toList . Matrix.flatten <$> safeLinearSolve lhs rhs
       return $ Vec3 (f x) (f y) (f z)
 
 
@@ -2042,47 +2039,31 @@ optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..
 
         putStrLn $ "Aligning the " ++ show axis ++ " (" ++ show (length connectedComponents) ++ " components)"
 
-        forM_ connectedComponents $ \comp -> catchSingular $ do
+        forM_ connectedComponents $ \comp -> do
 
           -- For the current connected component of the connection graph for
           -- `axis`, find the optimal position of each room.
           -- This returns the first room being 0 along the axis, and the other rooms
           -- at positions that minimize the square error from the desired distances.
-          let newRoomCenters :: Map ID Float
-              (newRoomCentersDouble, rmse) = lstSqDistances (Map.fromList comp)
-              newRoomCenters = realToFrac <$> newRoomCentersDouble
+          case lstSqDistances (Map.fromList comp) of
+            Nothing -> putStrLn "WARNING: optimizeRoomPositions singularity error"
+            Just (newRoomCentersDouble, rmse) -> do
 
-          putStrLn $ "Aligned component of " ++ show axis ++ " axis with RMSE " ++ (printf "%.3f" rmse)
+              let newRoomCenters :: Map ID Float
+                  newRoomCenters = realToFrac <$> newRoomCentersDouble
 
-          -- We want the first room to be at its original position instead of at 0,
-          -- so shift the optimized room positions by that original position.
-          let firstRoomCenterComp = getComponent axis $ cornerMean firstRoom
-              newRoomCentersFromFirst = (+ firstRoomCenterComp) <$> newRoomCenters
+              putStrLn $ "Aligned component of " ++ show axis ++ " axis with RMSE " ++ (printf "%.3f" rmse)
 
-          -- Translate all rooms to their new positions.
-          forM_ (Map.toList newRoomCentersFromFirst) $ \(rid, newRoomCenterComp) -> do
-            changeRoom state rid $ \r ->
-              let oldRoomCenterComp = getComponent axis (cornerMean r)
-               in translateRoom ( (newRoomCenterComp - oldRoomCenterComp) `along` axis) r
+              -- We want the first room to be at its original position instead of at 0,
+              -- so shift the optimized room positions by that original position.
+              let firstRoomCenterComp = getComponent axis $ cornerMean firstRoom
+                  newRoomCentersFromFirst = (+ firstRoomCenterComp) <$> newRoomCenters
 
-
--- Because `linearSolve` and friends call `error` on singular systems.
-catchSingular :: IO () -> IO ()
-catchSingular f = try f >>= \case
-  Right r -> return r
-  -- TODO Catch variants with regex like in `linearSolve`.
-  Left (ErrorCall "linearSolverLSR: singular") -> putStrLn "WARNING: caught singularity error"
-  Left err -> throwIO err
-
-
--- TODO Refactor this so that `catchSingular` takes a `linearSolve*` function
---      and then also use it in TranslationOptimizer.
-linearSolve :: Hmatrix.Field t => Matrix.Matrix t -> Matrix.Matrix t -> Maybe (Matrix.Matrix t)
-linearSolve !a !b = unsafePerformIO $ try (evaluate (Hmatrix.linearSolve a b)) >>= \case
-  Right r -> return $ Just r
-  Left (ErrorCall msg)
-    | Just _ <- matchRegex (mkRegex "linearSolve(\\w*): singular") msg -> return Nothing
-  Left err -> throwIO err
+              -- Translate all rooms to their new positions.
+              forM_ (Map.toList newRoomCentersFromFirst) $ \(rid, newRoomCenterComp) -> do
+                changeRoom state rid $ \r ->
+                  let oldRoomCenterComp = getComponent axis (cornerMean r)
+                   in translateRoom ( (newRoomCenterComp - oldRoomCenterComp) `along` axis) r
 
 
 getComponent :: Axis -> Vec3 -> Float
