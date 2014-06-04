@@ -232,6 +232,9 @@ data MoveTarget = MoveRoom | MoveWall
   deriving (Eq, Ord, Bounded, Enum, Show, Generic)
 
 
+enumAll :: (Bounded a, Enum a) => [a]
+enumAll = [minBound..maxBound]
+
 cycleEnum :: forall a . (Bounded a, Enum a) => a -> a
 cycleEnum e = ( [e..maxBound] ++ [minBound..maxBound] ) !! 1
 -- Yay laziness! This is the boring alternative:
