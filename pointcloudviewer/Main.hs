@@ -2354,6 +2354,82 @@ devSetup state = do
   return ()
 
 
+
+type RoomNamesWithCorners = [(String, [Vec3])]
+
+
+groundFloorRooms :: RoomNamesWithCorners
+groundFloorRooms = -- From left to right
+  [ ("kueche2", [])
+  , ("windfang", [])
+  , ("treppeunten", [])
+  , ("wohnen1-2", [])
+  , ("wc1", [])
+  , ("diele1", [])
+  , ("bad1", [])
+  , ("arbeiten1", [])
+  , ("wohnen1gross", [])
+  ]
+
+
+firstFloorRooms :: RoomNamesWithCorners
+firstFloorRooms = -- From left to right
+  [ ("salon", [])
+  , ("treppemitte", [])
+  , ("niklas", [])
+  , ("wcoben", [])
+  , ("fluroben", [])
+  , ("badoben", [])
+  , ("schlafzimmer", [])
+  , ("clara", [])
+  ]
+
+
+secondFloorRooms :: RoomNamesWithCorners
+secondFloorRooms = -- From left to right
+  [ ("badganzoben", [])
+  , ("treppeganzoben", [])
+  , ("kuecheganzoben", [])
+  , ("flurganzoben", [])
+  , ("wohnenganzoben", [])
+  , ("schlafenganzoben", [])
+  ]
+
+
+houseSetup :: RoomNamesWithCorners -> State -> IO ()
+houseSetup rooms state = do
+
+  let baseDir = "/mnt/3d-scans/u51-walls"
+
+  ids <- forM (zip rooms diagonalPairs) $ \((roomName, cornersFromMean), (x,z)) -> do
+
+    Room{ roomID = i } <- loadRoom state (baseDir </> roomName)
+    changeRoom state i $ rotateKinfuRoom
+    autoAlignFloor state =<< (\(Just r) -> r) <$> getRoom state i
+
+    changeRoom state i $ removeCeiling
+
+    cornersFromMeanWithIDs <- zipGenIDs state cornersFromMean
+
+    -- `cornersFromMean` were recorded after `rotateKinfuRoom`, `autoAlignFloor`, and `removeCeiling`.
+    changeRoom state i $ \r -> r{ roomCorners = [ (cid, c &+ roomMean r) | (cid, c) <- cornersFromMeanWithIDs ] }
+
+    changeRoom state i $ translateRoom (Vec3 (6 * fromIntegral x) 0 (6 * fromIntegral z))
+
+    return i
+
+
+  forM_ (zip rooms ids) $ \((roomName, _), i) -> do
+
+    projStr <- roomProjectionToString . (\(Just r) -> r) <$> getRoom state i
+    putStrLn $ "~/src/pcl/pcl/build/bin/pcl_transform_point_cloud"
+               ++ " ../" ++ roomName ++ "/cloud_bin.pcd " ++ roomName ++ "-placed.pcd"
+               ++ " -matrix " ++ projStr
+
+
+  return ()
+
+
 sleep :: Double -> IO ()
 sleep t = threadDelay $ floor (t * 1e6)
 
