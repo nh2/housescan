@@ -327,7 +327,11 @@ data Axis = X | Y | Z
   deriving (Eq, Ord, Show, Generic)
 
 
-data WallRelation = Opposite | Same
+data WallRelation_v1 = Opposite_v1 | Same_v1
+
+data WallRelation
+  = Opposite Float -- ^ For walls opposite each other, with distance between them (thickness).
+  | Same           -- ^ For walls that are the same, facing in the same direction.
   deriving (Eq, Ord, Show, Generic)
 
 
@@ -675,8 +679,8 @@ drawWallConnections  State{ transient = TransientState{ sConnectedWalls, sRooms 
           Z -> color3 0.0 0.0 1.0
 
         let withStyle = case relation of
-              Opposite -> id
-              Same     -> withVar lineStipple (Just (1, 0x03ff))
+              Opposite _ -> id
+              Same       -> withVar lineStipple (Just (1, 0x03ff))
 
         withStyle $ do
           renderPrimitive Lines $ do
@@ -937,7 +941,8 @@ input state (Char '\b') Down _ _ = clearRooms state
 input state (Char ' ') Down _ _ = clearSelections state
 input state (Char '#') Down _ _ = swapRoomPositions state
 input state (Char 'a') Down _ _ = autoAlignAndRotate state
-input state (Char 'w') Down _ _ = connectWalls state Opposite
+input state (Char 'w') Down _ _ = do d <- get (sWallThickness state)
+                                     connectWalls state (Opposite d)
 input state (Char 'W') Down _ _ = connectWalls state Same
 input state (Char '\^W') Down _ _ = disconnectWalls state
 input state (Char 'o') Down _ _ = optimizeRoomPositions state
@@ -1983,7 +1988,7 @@ disconnectWalls State{ transient = TransientState{..}, ..} = do
 
 
 optimizeRoomPositions :: State -> IO ()
-optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..} } = do
+optimizeRoomPositions state@State{ transient = TransientState{..} } = do
   rooms <- Map.elems <$> get sRooms
   conns <- get sConnectedWalls
 
@@ -1998,8 +2003,6 @@ optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..
   when ([ () | (_, _, r1, r2, _, _) <- wallsRooms, roomCorners r1 == [] || roomCorners r2 == [] ] /= []) $
     error "some room in position optimization has no corners!"
 
-  wallThickness <- get sWallThickness
-
   -- We optimize translations along the 3 axes separately (they are independent).
   -- That means that we we only have to work on one component of any 3D point
   -- involved, which we get with `getComponent axis`.
@@ -2011,8 +2014,8 @@ optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..
           [ ((roomID r1, roomID r2), realToFrac $ o + signum o * wallDistance)
           | (p1, p2, r1, r2, ax, relation) <- wallsRooms, ax == axis
           , let o = roomCenterOffsetFromWalls r1 r2 p1 p2 axis
-          , let wallDistance = case relation of Opposite -> wallThickness
-                                                Same     -> 0
+          , let wallDistance = case relation of Opposite d -> d
+                                                Same       -> 0
           ]
 
     -- Check if there is any room to move on this axis
@@ -2600,7 +2603,13 @@ instance Migrate Room where
   type MigrateFrom Room = Room_v3
   migrate (Room_v3 i planes cloud corners proj name) = Room i planes cloud [ (0,c) | c <- corners] [] proj name -- Dirty hack
 
-deriveSafeCopy 1 'base ''WallRelation
+deriveSafeCopy 1 'base ''WallRelation_v1
+deriveSafeCopy 2 'extension ''WallRelation
+instance Migrate WallRelation where
+  type MigrateFrom WallRelation = WallRelation_v1
+  migrate Same_v1     = Same
+  migrate Opposite_v1 = Opposite 0.1 -- global default was 10cm
+
 deriveSafeCopy 1 'base ''Axis
 deriveSafeCopy 1 'base ''Save_v1
 deriveSafeCopy 2 'extension ''Save
