@@ -440,6 +440,17 @@ display state@State{..} = do
   getTimeUs >>= \now -> sLastLoopTime $= Just now
 
 
+createMenu :: State -> Menu
+createMenu State{ sWallThickness } = Menu
+  [ SubMenu "Wall thickness" $ Menu
+      [ MenuEntry (show t ++ " cm") (sWallThickness $= fromCm t)
+      | t <- ([0..10] ++ [12,14..20] ++ [25,30..60] :: [Int]) ]
+  ]
+  where
+    fromCm :: Int -> Float
+    fromCm cm = fromIntegral cm / 100
+
+
 idToColor :: ID -> Color4 GLfloat
 idToColor i = Color4 (fromIntegral r / 255.0)
                      (fromIntegral g / 255.0)
@@ -1092,6 +1103,9 @@ mainState state@State{..} = do
   passiveMotionCallback $= Just (passiveMotion state)
   keyboardMouseCallback $= Just (input state)
   closeCallback         $= Just (close state)
+
+  -- Menu
+  attachMenu MiddleButton (createMenu state)
 
   initializeObjects state
 
