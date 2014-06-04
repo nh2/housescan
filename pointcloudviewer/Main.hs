@@ -2111,10 +2111,14 @@ exportRoomProjection state = do
 
 
 switchMoveTarget :: State -> IO ()
-switchMoveTarget State{ transient = TransientState{ sMoveTarget } } = do
-  newMoveTarget <- cycleEnum <$> get sMoveTarget
-  sMoveTarget $= newMoveTarget
-  putStrLn $ "Move target: " ++ show newMoveTarget
+switchMoveTarget state@State{ transient = TransientState{ sMoveTarget } } = do
+  setMoveTarget state . cycleEnum =<< get sMoveTarget
+
+
+setMoveTarget :: State -> MoveTarget -> IO ()
+setMoveTarget State{ transient = TransientState{ sMoveTarget } } t = do
+  sMoveTarget $= t
+  putStrLn $ "Move target: " ++ show t
 
 
 duplicateSelectedPlane :: State -> IO ()
