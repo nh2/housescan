@@ -1703,7 +1703,8 @@ fitCuboidToSelectedRoom state = do
 
 
 fitCuboidToRoom :: State -> Room -> IO ()
-fitCuboidToRoom state Room{ roomID, roomCorners } = do
+fitCuboidToRoom state@State{ transient = TransientState{ sConnectedWalls } }
+                Room{ roomID, roomCorners, roomPlanes = oldRoomPlanes } = do
   putStrLn $ "fitting cuboid to room " ++ show roomID
 
   if length roomCorners < 8
@@ -1730,6 +1731,13 @@ fitCuboidToRoom state Room{ roomID, roomCorners } = do
 
       changeRoom state roomID (\r -> r{ roomCorners = newCorners
                                       , roomPlanes  = cuboidPlanes })
+
+      -- The room now has new planes, we have to remove the old wall IDs from
+      -- sConnectedWalls.
+      let oldPlaneIDs = map planeID oldRoomPlanes
+      sConnectedWalls $~ \ws -> [ w | w@(_, _, pidA, pidB) <- ws
+                                    , pidA `notElem` oldPlaneIDs
+                                    , pidB `notElem` oldPlaneIDs]
 
 
 makePlanesFromCuboid :: State -> [Vec3] -> Vec3 -> Vec3 -> UnitQuaternion -> IO [Plane]
