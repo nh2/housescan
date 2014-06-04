@@ -39,4 +39,5 @@ executable pointcloudviewer
                      , safecopy >= 0.8.3
                      , vector-algorithms >= 0.6.0.1
                      , directory >= 1.2.0.1
+                     , regex-compat >= 0.95.1
   ghc-options: -Wall -threaded -fno-ignore-asserts

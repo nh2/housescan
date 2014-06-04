@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase, MultiWayIf, ScopedTypeVariables, TypeSynonymInstances, ParallelListComp #-}
+{-# LANGUAGE NamedFieldPuns, RecordWildCards, LambdaCase, MultiWayIf, ScopedTypeVariables, TypeSynonymInstances, ParallelListComp, PatternGuards #-}
 {-# LANGUAGE DeriveGeneric, StandaloneDeriving, FlexibleContexts, TypeOperators, DeriveDataTypeable #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -12,7 +13,7 @@ module Main where
 
 import           Control.Applicative
 import           Control.Concurrent
-import           Control.Exception (assert, try, throwIO, ErrorCall(..))
+import           Control.Exception (assert, try, throwIO, ErrorCall(..), evaluate)
 import           Control.Monad
 import           Data.Attoparsec.ByteString.Char8 (parseOnly, sepBy1', double, endOfLine, skipSpace)
 import           Data.Bits (unsafeShiftR)
@@ -48,15 +49,17 @@ import           GHC.Generics
 import           Graphics.GLUtil
 import           Graphics.UI.GLUT hiding (Plane, Normal3)
 import           Linear (V3(..))
-import           Numeric.LinearAlgebra.Algorithms (linearSolve)
+import qualified Numeric.LinearAlgebra.Algorithms as Hmatrix
 import qualified PCD.Data as PCD
 import qualified PCD.Point as PCD
 import           System.Directory (createDirectoryIfMissing)
 import           System.Endian (fromBE32)
+import           System.IO.Unsafe (unsafePerformIO)
 import           System.FilePath ((</>), takeFileName, takeDirectory)
 import           System.Random (randomRIO)
 import           System.SelfRestart (forkSelfRestartExePollWithAction)
 import           System.IO (hPutStrLn, stderr)
+import           Text.Regex (mkRegex, matchRegex)
 
 import           FitCuboidBFGS hiding (main)
 import           GroupConnectedComponents (groupConnectedComponents)
@@ -1345,10 +1348,10 @@ loadPlanes state dir = do
   forM_ planes (addPlane state)
 
 
-planeCorner :: PlaneEq -> PlaneEq -> PlaneEq -> Vec3
+planeCorner :: PlaneEq -> PlaneEq -> PlaneEq -> Maybe Vec3
 planeCorner (PlaneEq n1 d1)
             (PlaneEq n2 d2)
-            (PlaneEq n3 d3) = Vec3 (f x) (f y) (f z)
+            (PlaneEq n3 d3) = res
   where
     -- TODO Figure out how to detect when the system isn't solvable (parallel planes)
     Vec3 a1 b1 c1 = fromNormal n1
@@ -1356,11 +1359,13 @@ planeCorner (PlaneEq n1 d1)
     Vec3 a3 b3 c3 = fromNormal n3
     f = realToFrac :: Double -> Float
     d = realToFrac :: Float -> Double
-    [x,y,z] = HmatrixVec.toList . Matrix.flatten $ linearSolve lhs rhs
     lhs = (3><3)[ d a1, d b1, d c1
                 , d a2, d b2, d c2
                 , d a3, d b3, d c3 ]
     rhs = (3><1)[ d d1, d d2, d d3 ]
+    res = do -- Maybe monad
+      [x,y,z] <- HmatrixVec.toList . Matrix.flatten <$> linearSolve lhs rhs
+      return $ Vec3 (f x) (f y) (f z)
 
 
 red :: Color3 GLfloat
@@ -1407,23 +1412,25 @@ addCornerPoint state@State{ transient = TransientState{..}, ..} = do
     pids@[_,_,_] -> do
       [Just p1, Just p2, Just p3] <- mapM (getAnyPlaneID state) pids
 
-      let corner = planeCorner (planeEq p1) (planeEq p2) (planeEq p3)
+      case planeCorner (planeEq p1) (planeEq p2) (planeEq p3) of
+        Nothing -> putStrLn "Planes do not intersect!"
+        Just corner -> do
 
-      -- First check if p1 is part of a room.
-      rooms <- Map.elems <$> get sRooms
-      case [ r | pid <- pids
-               , Just r <- [findRoomContainingPlane rooms pid] ] of
-        [r@Room{ roomID = i },r2,r3] | roomID r2 == i && roomID r3 == i -> do
-          case roomCorners r of
-            corners | length corners < 8 -> do
-              putStrLn $ "Merging planes of room to corner " ++ show corner
-              cornerId <- genID state
-              addCornerToRoom state (cornerId, corner) r
-            _ -> putStrLn $ "Room " ++ show i ++ " already has 8 corners"
-        _ -> do
-          putStrLn $ "Merged planes to corner " ++ show corner
-          i <- genID state
-          addPointCloud state $ Cloud i (OneColor red) (V.fromList [corner])
+          -- First check if p1 is part of a room.
+          rooms <- Map.elems <$> get sRooms
+          case [ r | pid <- pids
+                   , Just r <- [findRoomContainingPlane rooms pid] ] of
+            [r@Room{ roomID = i },r2,r3] | roomID r2 == i && roomID r3 == i -> do
+              case roomCorners r of
+                corners | length corners < 8 -> do
+                  putStrLn $ "Merging planes of room to corner " ++ show corner
+                  cornerId <- genID state
+                  addCornerToRoom state (cornerId, corner) r
+                _ -> putStrLn $ "Room " ++ show i ++ " already has 8 corners"
+            _ -> do
+              putStrLn $ "Merged planes to corner " ++ show corner
+              i <- genID state
+              addPointCloud state $ Cloud i (OneColor red) (V.fromList [corner])
 
     ps -> putStrLn $ show (length ps) ++ " planes selected, need 3"
 
@@ -1438,7 +1445,7 @@ suggestPoints state@State{..} = withSelectedRoom state $ \r -> do
       maxMeanDistance = V.maximum . V.map (distance (roomMean r)) $ cloudPoints (roomCloud r)
       cutoff = cutoffFactor * maxMeanDistance
 
-  suggestedCorners <- zipGenIDs state [ c | c <- allCorners, distance c (roomMean r) <= cutoff ]
+  suggestedCorners <- zipGenIDs state [ c | Just c <- allCorners, distance c (roomMean r) <= cutoff ]
 
   if -- If no points have been selected so far and there are only 8 suggestions, directly use those
     | roomCorners r == [] && length suggestedCorners == 8 -> do
@@ -2059,7 +2066,18 @@ optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..
 catchSingular :: IO () -> IO ()
 catchSingular f = try f >>= \case
   Right r -> return r
+  -- TODO Catch variants with regex like in `linearSolve`.
   Left (ErrorCall "linearSolverLSR: singular") -> putStrLn "WARNING: caught singularity error"
+  Left err -> throwIO err
+
+
+-- TODO Refactor this so that `catchSingular` takes a `linearSolve*` function
+--      and then also use it in TranslationOptimizer.
+linearSolve :: Hmatrix.Field t => Matrix.Matrix t -> Matrix.Matrix t -> Maybe (Matrix.Matrix t)
+linearSolve !a !b = unsafePerformIO $ try (evaluate (Hmatrix.linearSolve a b)) >>= \case
+  Right r -> return $ Just r
+  Left (ErrorCall msg)
+    | Just _ <- matchRegex (mkRegex "linearSolve(\\w*): singular") msg -> return Nothing
   Left err -> throwIO err
 
 
