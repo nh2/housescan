@@ -444,10 +444,12 @@ display state@State{..} = do
 
 
 createMenu :: State -> Menu
-createMenu State{ sWallThickness } = Menu
+createMenu state@State{ sWallThickness } = Menu
   [ SubMenu "Wall thickness" $ Menu
       [ MenuEntry (show t ++ " cm") (sWallThickness $= fromCm t)
       | t <- ([0..10] ++ [12,14..20] ++ [25,30..60] :: [Int]) ]
+  , SubMenu "Move target" $ Menu
+      [ MenuEntry (show mt) (setMoveTarget state mt) | mt <- enumAll :: [MoveTarget] ]
   ]
   where
     fromCm :: Int -> Float
