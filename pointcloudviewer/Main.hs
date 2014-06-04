@@ -2124,6 +2124,15 @@ moveDirection state@State{ transient = TransientState{..}, ..} directionVec = do
         ps -> putStrLn $ show (length ps) ++ " walls selected, need 1"
 
 
+-- Convenience
+moveAllRooms :: State -> Vec3 -> IO ()
+moveAllRooms state@State{ transient = TransientState { sRooms } } directionVec = do
+  rooms <- Map.elems <$> get sRooms
+
+  forM_ rooms $ \r -> do
+    updateRoom state (translateRoom directionVec r)
+
+
 roomProjectionToString :: Room -> String
 roomProjectionToString Room{ roomProj }
   = intercalate "," $ map show [a,b,c,d
