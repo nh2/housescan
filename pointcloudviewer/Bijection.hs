@@ -9,6 +9,9 @@ import qualified Data.Set as Set
 
 -- | Bijects a range of things into a continuous range of `Int`s.
 --
+-- The `Int`s are guaranteed to be assigned in the same order as they are given
+-- in the input list (of course only the first occurrence matters).
+--
 -- Returns the two forward and backward bijeciton functions.
 biject :: (Ord a) => [a] -> (a -> Int, Int -> a)
 biject xs = (indexOf, aOfIndex)
