@@ -942,6 +942,7 @@ input state (Char '\^W') Down _ _ = disconnectWalls state
 input state (Char 'o') Down _ _ = optimizeRoomPositions state
 input state (Char 'e') Down _ _ = exportRoomProjection state
 input state (Char 'm') Down _ _ = switchMoveTarget state
+input state (Char 'D') Down _ _ = duplicateSelectedPlane state
 input state (SpecialKey KeyUp      ) Down _ _ = moveDirection state (Vec3   0    0 (-1))
 input state (SpecialKey KeyDown    ) Down _ _ = moveDirection state (Vec3   0    0   1 )
 input state (SpecialKey KeyLeft    ) Down _ _ = moveDirection state (Vec3 (-1)   0   0 )
@@ -2094,6 +2095,23 @@ switchMoveTarget State{ transient = TransientState{ sMoveTarget } } = do
   newMoveTarget <- cycleEnum <$> get sMoveTarget
   sMoveTarget $= newMoveTarget
   putStrLn $ "Move target: " ++ show newMoveTarget
+
+
+duplicateSelectedPlane :: State -> IO ()
+duplicateSelectedPlane state@State{ transient = TransientState{..} } = do
+  get sSelectedPlanes >>= \case
+    [pid] -> do
+      putStrLn $ "Duplicating wall " ++ show pid
+
+      Just p <- getAnyPlaneID state pid
+      i <- genID state
+      let dupPlane = p{ planeID = i }
+
+      rooms <- Map.elems <$> get sRooms
+      case findRoomContainingPlane rooms (planeID p) of
+        Just r -> updateRoom state r{ roomPlanes = dupPlane : roomPlanes r }
+        _      -> sPlanes $~ Map.insert (planeID dupPlane) dupPlane
+    ps -> putStrLn $ show (length ps) ++ " walls selected, need 1"
 
 
 moveDirection :: State -> Vec3 -> IO ()
