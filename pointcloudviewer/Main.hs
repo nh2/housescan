@@ -59,6 +59,7 @@ import           System.FilePath ((</>), takeFileName, takeDirectory)
 import           System.Random (randomRIO)
 import           System.SelfRestart (forkSelfRestartExePollWithAction)
 import           System.IO (hPutStrLn, stderr)
+import           Text.Printf (printf)
 import           Text.Regex (mkRegex, matchRegex)
 
 import           FitCuboidBFGS hiding (main)
@@ -2048,7 +2049,10 @@ optimizeRoomPositions state@State{ sWallThickness, transient = TransientState{..
           -- This returns the first room being 0 along the axis, and the other rooms
           -- at positions that minimize the square error from the desired distances.
           let newRoomCenters :: Map ID Float
-              newRoomCenters = realToFrac <$> lstSqDistances (Map.fromList comp)
+              (newRoomCentersDouble, rmse) = lstSqDistances (Map.fromList comp)
+              newRoomCenters = realToFrac <$> newRoomCentersDouble
+
+          putStrLn $ "Aligned component of " ++ show axis ++ " axis with RMSE " ++ (printf "%.3f" rmse)
 
           -- We want the first room to be at its original position instead of at 0,
           -- so shift the optimized room positions by that original position.
