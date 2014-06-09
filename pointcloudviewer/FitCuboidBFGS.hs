@@ -83,13 +83,39 @@ pointMean points = c
     n = length points
     c = foldl' (&+) zero points &* (1 / fromIntegral n)  -- bound center
 
+-- | Rotates a point around the origin.
+rotateOrigin :: Mat3 -> Vec3 -> Vec3
+rotateOrigin rotMat p = p.* rotMat
+
 -- | Rotates a point around a rotation center.
 rotateAround :: Vec3 -> Mat3 -> Vec3 -> Vec3
 rotateAround rotCenter rotMat p = ((p &- rotCenter) .* rotMat) &+ rotCenter
 
 
+-- Spawns a cuboid at (0,0,0), then rotates it by the quaternion,
+-- then translates its center to (x,y,z).
+-- This is the same as spawning at (x,y,z) and rotating around (x,y,z).
 cuboidFromParams :: [Double] -> Cuboid
 cuboidFromParams [x,y,z, a,b,c, q1,q2,q3,q4] = ps
+  where
+    rotMat = fromOrtho (rightOrthoU (mkU (Vec4 q1 q2 q3 q4)))
+    ps = map ( (&+ Vec3 x y z) . rotateOrigin rotMat ) $
+           [ Vec3 (- a/2) (- b/2) (- c/2)
+           , Vec3 (- a/2) (- b/2) (  c/2)
+           , Vec3 (- a/2) (  b/2) (- c/2)
+           , Vec3 (- a/2) (  b/2) (  c/2)
+           , Vec3 (  a/2) (- b/2) (- c/2)
+           , Vec3 (  a/2) (- b/2) (  c/2)
+           , Vec3 (  a/2) (  b/2) (- c/2)
+           , Vec3 (  a/2) (  b/2) (  c/2)
+           ]
+cuboidFromParams _ = error "bad arguments passed to cuboidFromParams"
+
+
+-- Like cuboidFromParams, but spawns the cuboid with center (x,y,z),
+-- then rotates it around (x,y,z).
+cuboidFromParamsRotateAround :: [Double] -> Cuboid
+cuboidFromParamsRotateAround [x,y,z, a,b,c, q1,q2,q3,q4] = ps
   where
     rotMat = fromOrtho (rightOrthoU (mkU (Vec4 q1 q2 q3 q4)))
     ps = map (rotateAround (Vec3 x y z) rotMat) $
@@ -102,7 +128,16 @@ cuboidFromParams [x,y,z, a,b,c, q1,q2,q3,q4] = ps
            , Vec3 (x + a/2) (y + b/2) (z - c/2)
            , Vec3 (x + a/2) (y + b/2) (z + c/2)
            ]
-cuboidFromParams _ = error "bad arguments passed to cuboidFromParams"
+cuboidFromParamsRotateAround _ = error "bad arguments passed to cuboidFromParams"
+
+
+cuboidFromParamsIdentityCheck :: IO ()
+cuboidFromParamsIdentityCheck = quickCheck . property $ \((x,y,z), (a,b,c), (q1,q2,q3,q4)) ->
+  let ps = [x,y,z, a,b,c, q1,q2,q3,q4]
+   in sum [q1,q2,q3,q4] /= 0.0 ==> -- Unit quaternion can't be all 0
+      sum [ d | (c1, c2) <- zip (cuboidFromParams ps) (cuboidFromParamsRotateAround ps)
+              , let d = distance c1 c2
+          ] < 1e-6
 
 
 cuboidGen :: Gen (Cuboid, ((Double, Double, Double), Vec3, Double))
@@ -219,6 +254,9 @@ guessDims p = (a, b, c)
 
 main :: IO ()
 main = do
+  putStrLn "Running tests"
+  cuboidFromParamsIdentityCheck
+
   do -- Example
     let p = _example_points
         (solution, steps, err, _path) = fitCuboid p
