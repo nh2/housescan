@@ -28,6 +28,8 @@ import           Data.Ord (comparing)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Data.Typeable
 import qualified Data.Packed.Matrix as Matrix
+import qualified Numeric.Container as Matrix
+import qualified Numeric.LinearAlgebra.Algorithms as Matrix
 import           Data.Packed.Matrix ((><))
 import qualified Data.Packed.Vector as HmatrixVec
 import           Data.SafeCopy
@@ -222,6 +224,8 @@ data TransientState = TransientState
   , sSelectedRoom                  :: !(IORef (Maybe ID))
   , sConnectedWalls                :: !(IORef [(Axis, WallRelation, ID, ID)])
   , sMoveTarget                    :: !(IORef MoveTarget)
+  , sPickablePoints                :: !(IORef (Map ID Vec3)) -- point ID -> point
+  , sSelectedPoints                :: !(IORef [Vec3]) -- points in 3D space (not references)
   }
 
 instance Show TransientState where
@@ -573,6 +577,8 @@ drawObjects state@State{ sDisplayPlanes, sDisplayClouds, transient = TransientSt
 
   drawRoomCorners state
 
+  drawPickablePoints state
+
   when (not picking) $ drawWallConnections state
 
   on sDisplayPlanes $ drawPlanes state
@@ -678,6 +684,24 @@ drawRoomCorners State{ transient = TransientState{ sRooms, sPickingMode }, ..} =
             color3 1 0 1 >> vertexVec3 f
             color3 1 1 0 >> vertexVec3 g
             color3 1 1 1 >> vertexVec3 h
+
+
+drawPickablePoints :: State -> IO ()
+drawPickablePoints State{ transient = TransientState{ sPickablePoints, sPickingMode }, ..} = do
+
+  pickablePoints <- get sPickablePoints
+  picking <- get sPickingMode
+  underCursor <- get sUnderCursor
+
+  withVar pointSize 8.0 $ do
+    renderPrimitive Points $ do
+
+      forM_ (Map.toList pickablePoints) $ \(i, c) -> do
+        color $ if
+          | picking               -> idToColor i
+          | underCursor == Just i -> Color4 0 1 0 1
+          | otherwise             -> Color4 0 0 1 1 -- TODO check why transparency doesn't work
+        vertexVec3 c
 
 
 drawWallConnections :: State -> IO ()
@@ -948,6 +972,8 @@ input state (Char 'c') Down _ _ = addCornerPoint state
 input state (Char '\DEL') Down _ _ = deleteSelectedPlane state
 input state (Char 'g') Down _ _ = suggestPoints state
 input state (Char 'f') Down _ _ = fitCuboidToSelectedRoom state
+input state (Char 'S') Down _ _ = makeSelectedRoomPointsPickable state
+input state (Char 'P') Down _ _ = planeFromSelectedPoints state
 input state (Char 'r') Down _ _ = rotateSelectedPlanes state
 input state (Char 's') Down _ _ = save state
 input state (Char 'l') Down _ _ = load state
@@ -1011,6 +1037,11 @@ objectClick state@State{ transient = TransientState{..}, ..} (Just i) = do
   for_ (findRoomContainingSuggestedCorner rooms i) $ \r -> do
     acceptCornerSuggestion state r i
 
+  -- Pickable point click
+  Map.lookup i <$> get sPickablePoints >>= \case
+    Nothing -> return ()
+    Just vec -> atomicModifyIORef_ sSelectedPoints (vec:)
+
 
 -- |Mouse wheel movement (sZoom)
 wheel :: State -> WheelNumber -> WheelDirection -> Position -> IO ()
@@ -1065,6 +1096,8 @@ createTransientState = do
   sSelectedRoom <- newIORef Nothing
   sConnectedWalls <- newIORef []
   sMoveTarget <- newIORef MoveRoom
+  sPickablePoints <- newIORef Map.empty
+  sSelectedPoints <- newIORef []
   return TransientState{..}
 
 
@@ -1391,6 +1424,26 @@ planeCorner (PlaneEq n1 d1)
     res = do -- Maybe monad
       [x,y,z] <- HmatrixVec.toList . Matrix.flatten <$> safeLinearSolve lhs rhs
       return $ Vec3 (f x) (f y) (f z)
+
+
+-- | Finds the best fitting plane (total least squares).
+--
+-- Implemented as the normal vector being the smallest eigenvector in PCA.
+fitPlane :: Vector Vec3 -> PlaneEq
+fitPlane points
+  | n < 3     = error $ "fitPlane: " ++ show n ++ " points given, need at least 3"
+  | otherwise = PlaneEq (mkNormal $ Vec3 nx ny nz) d
+  where
+    meanSubtracted = V.toList $ V.map (toDoubleVec . (&- m)) points
+    n = V.length points
+    pointMat = Matrix.trans $ (n >< 3) $ concat
+                 [ [x,y,z] | Vect.Double.Vec3 x y z <- meanSubtracted ]
+    (_, eigVecs) = Matrix.eigSH (pointMat Matrix.<> Matrix.trans pointMat)
+    [ [_, _, nx],
+      [_, _, ny],
+      [_, _, nz] ] = map (map toFloat) $ Matrix.toLists eigVecs
+    d = signedDistanceToPlaneEq (PlaneEq (mkNormal $ Vec3 nx ny nz) 0) m
+    m = pointMean points
 
 
 red :: Color3 GLfloat
@@ -1735,6 +1788,25 @@ fitCuboidToSelectedRoom state = do
   withSelectedRoom state (fitCuboidToRoom state)
 
 
+makeSelectedRoomPointsPickable :: State -> IO ()
+makeSelectedRoomPointsPickable state@State{ transient = TransientState{ sPickablePoints } } = do
+  withSelectedRoom state $ \Room{ roomCloud = Cloud{ cloudPoints } } -> do
+    idsPoints <- zipGenIDs state (V.toList cloudPoints)
+    atomicModifyIORef_ sPickablePoints (Map.fromList idsPoints `Map.union`)
+
+
+planeFromSelectedPoints :: State -> IO ()
+planeFromSelectedPoints state@State{ transient = TransientState{ sSelectedPoints } } = do
+  get sSelectedPoints >>= \case
+    ps | length ps < 3 -> putStrLn $ show (length ps) ++ " points selected, need at least 3"
+    ps -> withSelectedRoom state $ \r -> do
+      i <- genID state
+      let planeEq = fitPlane (V.fromList ps)
+          plane   = Plane i planeEq red (V.map (projectToPlane planeEq) $ V.fromList ps)
+      updateRoom state r{ roomPlanes = plane : roomPlanes r }
+      sSelectedPoints $= []
+
+
 fitCuboidToRoom :: State -> Room -> IO ()
 fitCuboidToRoom state@State{ transient = TransientState{ sConnectedWalls } }
                 Room{ roomID, roomCorners, roomPlanes = oldRoomPlanes } = do
@@ -1924,6 +1996,7 @@ clearSelections :: State -> IO ()
 clearSelections State{ transient = TransientState{..}, ..} = do
   sSelectedPlanes $= []
   sSelectedRoom $= Nothing
+  sSelectedPlanes $= []
   putStrLn "selections cleared"
 
 
