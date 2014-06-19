@@ -638,7 +638,7 @@ drawPointClouds State{ sPointSize, transient = TransientState{ sAllocatedClouds 
     bindBuffer ArrayBuffer $= Nothing
 
     clientState VertexArray $= Disabled
-    -- If we dont' disable this, a draw with only 1 color using `color` will segfault
+    -- If we don't disable this, a subsequent draw with only 1 color using `color` will segfault
     clientState ColorArray $= Disabled
 
 
