@@ -645,6 +645,8 @@ drawPointClouds State{ sPointSize, transient = TransientState{ sAllocatedClouds 
 drawRoomCorners :: State -> IO ()
 drawRoomCorners State{ transient = TransientState{ sRooms, sPickingMode }, ..} = do
   rooms <- Map.elems <$> get sRooms
+  picking <- get sPickingMode
+  underCursor <- get sUnderCursor
 
   withVar pointSize 8.0 $ do
     renderPrimitive Points $ do
@@ -652,8 +654,6 @@ drawRoomCorners State{ transient = TransientState{ sRooms, sPickingMode }, ..} =
       -- Room corner suggestions if we don't have enough corners
       forM_ rooms $ \Room{ roomSuggestedCorners, roomCorners } -> do
         when (length roomCorners /= 8) $ do
-          picking <- get sPickingMode
-          underCursor <- get sUnderCursor
 
           forM_ roomSuggestedCorners $ \(i, c) -> do
             color $ if
