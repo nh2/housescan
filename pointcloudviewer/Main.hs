@@ -986,6 +986,10 @@ input state (Char '\b') Down _ _ = clearRooms state
 input state (Char ' ') Down _ _ = clearSelections state
 input state (Char '#') Down _ _ = swapRoomPositions state
 input state (Char 'a') Down _ _ = autoAlignAndRotate state
+input state (Char '1') Down _ _ = houseSetup groundFloorRooms state
+input state (Char '2') Down _ _ = loadFrom state "u51-ground-fitted-rotated-moved.safecopy.bin"
+input state (Char '3') Down _ _ = loadFrom state "u51-ground-fitted-corrected-ordered-connected.safecopy.bin"
+input state (Char '4') Down _ _ = loadFrom state "u51-house-done.safecopy.bin"
 input state (Char 'w') Down _ _ = do d <- get (sWallThickness state)
                                      connectWalls state (Opposite d)
 input state (Char 'W') Down _ _ = connectWalls state Same
