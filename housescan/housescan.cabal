@@ -1,18 +1,18 @@
-name:                pointcloudviewer
+name:                housescan
 version:             0.1.0
 license:             MIT
 author:              Niklas Hambüchen <mail@nh2.me>, Nandor Licker
 maintainer:          Niklas Hambüchen <mail@nh2.me>
 build-type:          Simple
 cabal-version:       >=1.8
-homepage:            https://github.com/nh2/cloudviewer
-bug-reports:         https://github.com/nh2/cloudviewer/issues
-synopsis:            Point Cloud Viewer
+homepage:            https://github.com/nh2/housescan
+bug-reports:         https://github.com/nh2/housescan/issues
+synopsis:            Building-scale interior 3D reconstruction with KinectFusion
 description:
-  Displays point clouds with OpenGL.
+  Combines 3D scans of rooms taken with KinFu to models of whole buildings.
 
 
-executable pointcloudviewer
+executable housescan
   main-is:             Main.hs
   build-depends:       base >= 4.6 && < 5
                      , GLUT >= 2.5
