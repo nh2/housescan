@@ -1,7 +1,7 @@
 HouseScan
 =========
 
-A [distinguished](http://www3.imperial.ac.uk/computing/teaching/ug/ug-distinguished-projects) Computing Master's project at [Imperial College London](http://imperial.ac.uk), 2014. Supervised by Prof. [Andrew Davison](http://www.doc.ic.ac.uk/~ajd/). Written in Haskell. [Read the thesis](https://github.com/nh2/housescan/releases/download/presentation/HouseScan.pdf) or [watch a video](http://www.doc.ic.ac.uk/~nh910/flythrough-highres-hd.avi).
+A [distinguished](http://www3.imperial.ac.uk/computing/teaching/ug/ug-distinguished-projects) Computing Master's project at [Imperial College London](http://imperial.ac.uk), 2014. Supervised by Prof. [Andrew Davison](http://www.doc.ic.ac.uk/~ajd/). Written in Haskell. [Read the thesis](https://github.com/nh2/housescan/releases/download/presentation/HouseScan.pdf) or [watch a video](https://github.com/nh2/housescan/releases/download/video/flythrough-highres-hd.avi) (Imperial College video link [here](http://www.doc.ic.ac.uk/~nh910/flythrough-highres-hd.avi)).
 
 ### Building-scale interior 3D reconstruction with KinectFusion
 
